@@ -1,0 +1,34 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "DM Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-pupr-yellow: #F5A800;
+  --color-pupr-blue-dark: #003B7A;
+  --color-pupr-blue-light: #0060C7;
+  
+  --color-iri-baik: #1A7A2E;
+  --color-iri-sedang: #A8C822;
+  --color-iri-marginal: #F5C800;
+  --color-iri-ringan: #E07820;
+  --color-iri-berat: #CC1A1A;
+}
+
+
+body {
+  @apply font-sans;
+}
+
+/* Custom Leaflet Tooltip Styling */
+.leaflet-tooltip {
+  @apply !bg-white !border-slate-200 !shadow-lg !rounded-md !p-0 overflow-hidden;
+}
+
+.leaflet-tooltip-top:before, 
+.leaflet-tooltip-bottom:before, 
+.leaflet-tooltip-left:before, 
+.leaflet-tooltip-right:before {
+  @apply !border-transparent;
+}

@@ -1,0 +1,34 @@
+:root {
+  --pu-yellow: #F5A800;
+  --pu-blue: #003B7A;
+  --pu-blue-light: #0060C7;
+  --bg-page: #F5F7FA;
+  --bg-card: #FFFFFF;
+  --border: #DDE2EA;
+  --text-main: #1A2332;
+  --text-muted: #6B7A8D;
+  /* IRI Kondisi */
+  --iri-baik: #1A7A2E;
+  --iri-sedang: #A8C822;
+  --iri-sedang-marginal: #F5C800;
+  --iri-rusak-ringan: #E07820;
+  --iri-rusak-berat: #CC1A1A;
+  /* Treatment */
+  --t-rm: #2E7D32;
+  --t-rk: #9CCC00;
+  --t-hld: #78909C;
+  --t-prv: #9C6FBE;
+  --t-mnr: #E65100;
+  --t-myr: #1565C0;
+  --t-rkn: #B71C1C;
+  --shadow-card: 0 2px 12px rgba(0,59,122,.08);
+  --shadow-sidebar: 4px 0 24px rgba(0,59,122,.12);
+  --transition-sidebar: 250ms ease;
+}
+[data-theme="dark"] {
+  --bg-page: #0E1420;
+  --bg-card: #172033;
+  --border: #243047;
+  --text-main: #E8EDF5;
+  --text-muted: #6B7A8D;
+}

@@ -1,11 +1,12 @@
-<div align="center">
+# RoadTrack GIS — Dokumen Final Lengkap
+**Sistem Informasi Kemantapan & Riwayat Penanganan Jalan**
+**Versi:** 2.0.0 | **Tanggal:** Mei 2026 | **Status:** Siap Dikembangkan
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+RoadTrack GIS adalah aplikasi web berbasis peta interaktif yang mengubah data Excel tabular menjadi visualisasi kondisi jalan real-time, lengkap dengan manajemen riwayat penanganan, analitik anggaran, dan sistem autentikasi multi-peran.
 
-  <h1>Built with AI Studio</h2>
-
-  <p>The fastest path from prompt to production with Gemini.</p>
-
-  <a href="https://aistudio.google.com/apps">Start building</a>
-
-</div>
+## Tech Stack
+- Frontend: React + TypeScript + Tailwind CSS
+- Maps: Leaflet.js
+- Excel: SheetJS (XLSX)
+- Animations: Motion
+- Icons: Lucide React
