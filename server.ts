@@ -127,172 +127,140 @@ async function startServer() {
     const { data } = req.body;
     if (!Array.isArray(data)) return res.status(400).json({ detail: "Data harus berupa array" });
 
-    const getVal = (item: any, keys: string[]) => {
-      const itemKeys = Object.keys(item);
-      for (const k of keys) {
-        const matchingKey = itemKeys.find(ik => ik.trim().toLowerCase() === k.toLowerCase());
-        if (matchingKey && item[matchingKey] !== undefined && item[matchingKey] !== null && item[matchingKey] !== "") {
-          return item[matchingKey];
-        }
-      }
-      return undefined;
+    // --- 1. FUNGSI HELPER & PEMETAAN KOLOM ---
+    const mapping = {
+      noRuas: ["NO RUAS", "NO. RUAS", "No Ruas", "no_ruas"],
+      namaJalan: ["NAMA RUAS JALAN", "Nama Jalan", "nama_jalan"],
+      ppk: ["PPK", "Nama PPK", "ppk"],
+      staAwal: ["STA AWAL", "Sta Awal", "sta_awal"],
+      staAkhir: ["STA AKHIR", "Sta Akhir", "sta_akhir"],
+      lon: ["LONGITUDE", "Longitude", "X", "Bujur", "Bujur (X)"],
+      lat: ["LATITUDE", "Latitude", "Y", "Lintang", "Lintang (Y)"],
+      iri: ["IRI", "Nilai IRI", "iri"],
+      treatment: ["PENANGANAN", "Treatment", "Program", "treatment"]
     };
 
-    const mapping = {
-      noRuas: ["No. Ruas", "No Ruas", "no_ruas", "ruas_id", "ruas", "Ruas"],
-      namaJalan: ["Nama Jalan", "Nama Segmen", "Segmen", "nama_jalan", "Nama", "Jalan"],
-      ppk: ["PPK", "ppk", "Ppk"],
-      segmentId: ["ID Segmen", "ID", "Id", "id", "Segment ID", "segment_id", "SegmenID", "No. Segmen"],
-      staAwal: ["STA Awal", "STA_Awal", "sta_awal", "Awal", "STA", "sta"],
-      staAkhir: ["STA Akhir", "STA_Akhir", "sta_akhir", "Akhir"],
-      lat: ["Lat", "Latitude", "lat", "latitude", "Y", "y"],
-      lon: ["Lon", "Longitude", "lon", "longitude", "X", "x"],
-      tahun: ["Tahun", "tahun", "Year", "year", "Label", "label", "Periode", "Tahun Data"],
-      iri: ["IRI", "iri", "Iri", "Kondisi", "Nilai IRI"],
-      treatment: ["Treatment", "treatment", "Penanganan", "penanganan", "Jenis Penanganan", "Program", "Pekerjaan", "Rencana Penanganan", "Tipe Penanganan"]
+    const getVal = (item: any, keys: string[]) => {
+      for (const key of keys) {
+        if (item[key] !== undefined && item[key] !== null && item[key] !== "") {
+          return item[key];
+        }
+      }
+      return null;
     };
 
     const parseNum = (val: any) => {
-      if (val === undefined || val === null || val === "") return NaN;
-      if (typeof val === "number") return val;
-      let str = String(val).trim();
-      if (str.includes('.') && str.includes(',')) {
-        if (str.indexOf('.') < str.indexOf(',')) str = str.replace(/\./g, "").replace(/,/g, ".");
-        else str = str.replace(/,/g, "");
-      } else if (str.includes(',')) {
-        const commaCount = (str.match(/,/g) || []).length;
-        if (commaCount > 1) str = str.replace(/,/g, "");
-        else str = str.replace(/,/g, ".");
-      } else if (str.includes('.')) {
-        const dotCount = (str.match(/\./g) || []).length;
-        if (dotCount > 1) str = str.replace(/\./g, "");
-      }
-      return parseFloat(str);
-    };
-
-    const cleanTahunLabel = (label: any) => {
-        let s = String(label || "").trim();
-        if (s.endsWith(".0")) s = s.slice(0, -2);
-        return s || "-";
+      if (!val) return 0;
+      const num = parseFloat(String(val).replace(/,/g, '.'));
+      return isNaN(num) ? 0 : num;
     };
 
     const client = await pool.connect();
+    
     try {
       await client.query("BEGIN");
-      let imported = 0;
+
+      // --- 2. KONSOLIDASI DATA (IN-MEMORY) ---
+      const ruasData = new Map(); 
+      const segmenData = new Map(); 
+      const annualData = new Map(); 
 
       for (const item of data) {
-        const noRuas = String(getVal(item, mapping.noRuas) || "");
-        const namaJalan = String(getVal(item, mapping.namaJalan) || "Tanpa Nama");
-        const ppk = String(getVal(item, mapping.ppk) || "");
-        const segmentId = String(getVal(item, mapping.segmentId) || "");
+        const noRuas = String(getVal(item, mapping.noRuas) || "").trim();
+        const namaJalan = String(getVal(item, mapping.namaJalan) || "").trim();
+        const ppk = String(getVal(item, mapping.ppk) || "").trim();
         
-        if (!noRuas || !segmentId) continue;
-
         const staAwal = parseNum(getVal(item, mapping.staAwal));
         const staAkhir = parseNum(getVal(item, mapping.staAkhir));
+        
         const lon = parseNum(getVal(item, mapping.lon));
         const lat = parseNum(getVal(item, mapping.lat));
-
-        await client.query(`
-          INSERT INTO ruas_jalan (no_ruas, nama_jalan, ppk) 
-          VALUES ($1, $2, $3)
-          ON CONFLICT(no_ruas) DO UPDATE SET 
-            nama_jalan = COALESCE(EXCLUDED.nama_jalan, ruas_jalan.nama_jalan),
-            ppk = COALESCE(EXCLUDED.ppk, ruas_jalan.ppk)
-        `, [noRuas, namaJalan, ppk]);
-
-        const ruasRes = await client.query("SELECT id FROM ruas_jalan WHERE no_ruas = $1", [noRuas]);
-        if (ruasRes.rows.length === 0) continue;
-        const ruasId = ruasRes.rows[0].id;
         
-        await client.query(`
-          INSERT INTO segmen_jalan (segment_id, ruas_id, sta_awal, sta_akhir, longitude, latitude)
-          VALUES ($1, $2, $3, $4, $5, $6)
-          ON CONFLICT(segment_id) DO UPDATE SET 
-            sta_awal = COALESCE(EXCLUDED.sta_awal, segmen_jalan.sta_awal),
-            sta_akhir = COALESCE(EXCLUDED.sta_akhir, segmen_jalan.sta_akhir),
-            longitude = COALESCE(EXCLUDED.longitude, segmen_jalan.longitude),
-            latitude = COALESCE(EXCLUDED.latitude, segmen_jalan.latitude)
-        `, [segmentId, ruasId, isNaN(staAwal) ? null : staAwal, isNaN(staAkhir) ? null : staAkhir, isNaN(lon) ? null : lon, isNaN(lat) ? null : lat]);
+        const iri = parseNum(getVal(item, mapping.iri));
+        const treatment = String(getVal(item, mapping.treatment) || "NONE").trim();
 
-        const segRes = await client.query("SELECT id FROM segmen_jalan WHERE segment_id = $1", [segmentId]);
-        if (segRes.rows.length === 0) continue;
-        const segId = segRes.rows[0].id;
+        // Parameter tahun diasumsikan dikirim dari klien atau diset default ke 2025
+        const tahun = req.body.tahun || "2025"; 
+        const segmentId = `${noRuas}_${staAwal}_${staAkhir}`;
 
-        // Smart multi-year parsing
-        const itemKeys = Object.keys(item);
-        const processedYears = new Set<string>();
+        // Validasi minimum: Nomor ruas harus ada
+        if (!noRuas || noRuas === "" || segmentId === "_0_0") continue;
 
-        // 1. Explicit Tahun/Label Column
-        const explicitlySpecifiedYear = cleanTahunLabel(getVal(item, mapping.tahun));
-        if (explicitlySpecifiedYear !== "-") {
-            const iriVal = parseNum(getVal(item, mapping.iri));
-            const trtVal = getVal(item, mapping.treatment);
-            if (!isNaN(iriVal)) {
-              await client.query(`
-                INSERT INTO annual_data (segmen_id, tahun, iri) 
-                VALUES ($1, $2, $3) 
-                ON CONFLICT(segmen_id, tahun) DO UPDATE SET iri = EXCLUDED.iri
-              `, [segId, explicitlySpecifiedYear, iriVal]);
-            }
-            if (trtVal) {
-              await client.query(`
-                INSERT INTO annual_data (segmen_id, tahun, treatment) 
-                VALUES ($1, $2, $3) 
-                ON CONFLICT(segmen_id, tahun) DO UPDATE SET treatment = EXCLUDED.treatment
-              `, [segId, explicitlySpecifiedYear, String(trtVal).trim()]);
-            }
-            processedYears.add(explicitlySpecifiedYear);
-        }
-
-        // 2. Scan for year columns like "2025", "2025 S2", "IRI 2025", etc.
-        for (const key of itemKeys) {
-            const cleanKey = key.trim();
-            // Match years like 2024, 2025, 2025 S2, 2025-S2, etc. (must start with 20)
-            const yearMatch = cleanKey.match(/^20\d{2}(\s?S[12]|[-\s]?S[12])?$/i);
-            const iriMatch = cleanKey.match(/^IRI\s?(20\d{2}.*)$/i);
-            const trtMatch = cleanKey.match(/^(Treatment|Penanganan)\s?(20\d{2}.*)$/i);
-
-            if (yearMatch) {
-                const yearLabel = cleanTahunLabel(yearMatch[0]);
-                const val = parseNum(item[key]);
-                if (!isNaN(val)) {
-                  await client.query(`
-                    INSERT INTO annual_data (segmen_id, tahun, iri) VALUES ($1, $2, $3)
-                    ON CONFLICT(segmen_id, tahun) DO UPDATE SET iri = EXCLUDED.iri
-                  `, [segId, yearLabel, val]);
-                }
-            } else if (iriMatch) {
-                const yearLabel = cleanTahunLabel(iriMatch[1]);
-                const val = parseNum(item[key]);
-                if (!isNaN(val)) {
-                  await client.query(`
-                    INSERT INTO annual_data (segmen_id, tahun, iri) VALUES ($1, $2, $3)
-                    ON CONFLICT(segmen_id, tahun) DO UPDATE SET iri = EXCLUDED.iri
-                  `, [segId, yearLabel, val]);
-                }
-            } else if (trtMatch) {
-                const yearLabel = cleanTahunLabel(trtMatch[2]);
-                const val = String(item[key]).trim();
-                if (val) {
-                  await client.query(`
-                    INSERT INTO annual_data (segmen_id, tahun, treatment) VALUES ($1, $2, $3)
-                    ON CONFLICT(segmen_id, tahun) DO UPDATE SET treatment = EXCLUDED.treatment
-                  `, [segId, yearLabel, val]);
-                }
-            }
-        }
-
-        imported++;
+        ruasData.set(noRuas, { namaJalan, ppk });
+        segmenData.set(segmentId, { noRuas, staAwal, staAkhir, lon, lat });
+        annualData.set(`${segmentId}_${tahun}`, { segmentId, tahun, iri, treatment });
       }
 
+      // --- 3. BULK UPSERT: RUAS JALAN ---
+      const ruasNoArr: string[] = [], ruasNamaArr: string[] = [], ruasPpkArr: string[] = [];
+      ruasData.forEach((val, key) => {
+        ruasNoArr.push(key); ruasNamaArr.push(val.namaJalan); ruasPpkArr.push(val.ppk);
+      });
+
+      if (ruasNoArr.length > 0) {
+        await client.query(`
+          INSERT INTO ruas_jalan (no_ruas, nama_jalan, ppk)
+          SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[]) AS t(no_ruas, nama_jalan, ppk)
+          ON CONFLICT(no_ruas) DO UPDATE SET
+            nama_jalan = COALESCE(EXCLUDED.nama_jalan, ruas_jalan.nama_jalan),
+            ppk = COALESCE(EXCLUDED.ppk, ruas_jalan.ppk)
+        `, [ruasNoArr, ruasNamaArr, ruasPpkArr]);
+      }
+
+      // --- 4. BULK UPSERT: SEGMEN JALAN ---
+      const segIdArr: string[] = [], segNoRuasArr: string[] = [], segStaAwalArr: number[] = [];
+      const segStaAkhirArr: number[] = [], segLonArr: number[] = [], segLatArr: number[] = [];
+      
+      segmenData.forEach((val, key) => {
+        segIdArr.push(key); segNoRuasArr.push(val.noRuas); 
+        segStaAwalArr.push(val.staAwal); segStaAkhirArr.push(val.staAkhir);
+        segLonArr.push(val.lon); segLatArr.push(val.lat);
+      });
+
+      if (segIdArr.length > 0) {
+        await client.query(`
+          INSERT INTO segmen_jalan (ruas_id, segment_id, sta_awal, sta_akhir, longitude, latitude)
+          SELECT r.id, t.segment_id, t.sta_awal, t.sta_akhir, t.longitude, t.latitude
+          FROM UNNEST($1::text[], $2::text[], $3::float8[], $4::float8[], $5::float8[], $6::float8[]) 
+            AS t(segment_id, no_ruas, sta_awal, sta_akhir, longitude, latitude)
+          JOIN ruas_jalan r ON r.no_ruas = t.no_ruas
+          ON CONFLICT(segment_id) DO UPDATE SET
+            sta_awal = EXCLUDED.sta_awal,
+            sta_akhir = EXCLUDED.sta_akhir,
+            longitude = EXCLUDED.longitude,
+            latitude = EXCLUDED.latitude
+        `, [segIdArr, segNoRuasArr, segStaAwalArr, segStaAkhirArr, segLonArr, segLatArr]);
+      }
+
+      // --- 5. BULK UPSERT: DATA TAHUNAN (KONDISI JALAN) ---
+      const annSegIdArr: string[] = [], annTahunArr: string[] = [], annIriArr: number[] = [], annTreatmentArr: string[] = [];
+      
+      annualData.forEach((val) => {
+        annSegIdArr.push(val.segmentId); annTahunArr.push(val.tahun);
+        annIriArr.push(val.iri); annTreatmentArr.push(val.treatment);
+      });
+
+      if (annSegIdArr.length > 0) {
+        await client.query(`
+          INSERT INTO annual_data (segmen_id, tahun, iri, treatment)
+          SELECT s.id, t.tahun, t.iri, t.treatment
+          FROM UNNEST($1::text[], $2::text[], $3::float8[], $4::text[]) 
+            AS t(segment_id, tahun, iri, treatment)
+          JOIN segmen_jalan s ON s.segment_id = t.segment_id
+          ON CONFLICT(segmen_id, tahun) DO UPDATE SET
+            iri = EXCLUDED.iri,
+            treatment = EXCLUDED.treatment
+        `, [annSegIdArr, annTahunArr, annIriArr, annTreatmentArr]);
+      }
+
+      // --- 6. PENYELESAIAN TRANSAKSI ---
       await client.query("COMMIT");
-      res.json({ success: true, count: imported });
+      res.json({ success: true, count: data.length });
+
     } catch (error) {
       await client.query("ROLLBACK");
-      console.error("Import Error:", error);
-      res.status(500).json({ detail: "Gagal menyimpan data ke database. Periksa format file Anda." });
+      console.error("Kesalahan Import Batch:", error);
+      res.status(500).json({ detail: "Gagal memproses data. Terdapat kesalahan pada eksekusi basis data." });
     } finally {
       client.release();
     }
