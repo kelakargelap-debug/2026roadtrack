@@ -619,10 +619,10 @@ export const TrendDashboard = ({ ruasData, availableYears }: { ruasData: any[], 
                       </td>
                       <td className="p-3 text-center bg-blue-50/30">
                         <div className="flex flex-col gap-1 items-center">
-                          <span className="px-2 py-0.5 rounded font-bold text-white shadow-sm w-32" style={{backgroundColor: (TREN_COLORS as any)[s.tren]}}>
+                          <span className="px-3 py-0.5 rounded font-bold text-white shadow-sm w-full min-w-fit whitespace-nowrap" style={{backgroundColor: (TREN_COLORS as any)[s.tren]}}>
                             {s.tren}
                           </span>
-                          <span className="px-2 py-0.5 rounded font-bold text-white shadow-sm w-24" style={{backgroundColor: (KONDISI_COLORS as any)[s.kondisi]}}>
+                          <span className="px-3 py-0.5 rounded font-bold text-white shadow-sm w-full min-w-fit whitespace-nowrap" style={{backgroundColor: (KONDISI_COLORS as any)[s.kondisi]}}>
                             {s.kondisi} ({s.lastIri.toFixed(2).replace('.', ',')})
                           </span>
                         </div>
