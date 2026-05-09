@@ -138,22 +138,31 @@ async function startServer() {
 
     // --- 1. FUNGSI HELPER & PEMETAAN KOLOM ---
     const mapping = {
-      noRuas: ["NO RUAS", "NO. RUAS", "No Ruas", "no_ruas"],
-      namaJalan: ["NAMA RUAS JALAN", "Nama Jalan", "nama_jalan"],
-      ppk: ["PPK", "Nama PPK", "ppk"],
-      staAwal: ["STA AWAL", "Sta Awal", "sta_awal"],
-      staAkhir: ["STA AKHIR", "Sta Akhir", "sta_akhir"],
-      lon: ["LONGITUDE", "Longitude", "X", "Bujur", "Bujur (X)"],
-      lat: ["LATITUDE", "Latitude", "Y", "Lintang", "Lintang (Y)"],
-      iri: ["IRI", "Nilai IRI", "iri"],
-      treatment: ["PENANGANAN", "Treatment", "Program", "treatment"],
-      tahun: ["TAHUN", "Tahun", "tahun", "TAHUN DATA"]
+      noRuas: ["no. ruas", "no ruas", "no_ruas"],
+      namaJalan: ["nama jalan", "nama ruas jalan", "nama_jalan"],
+      ppk: ["ppk", "nama ppk"],
+      staAwal: ["sta awal", "sta_awal"],
+      staAkhir: ["sta akhir", "sta_akhir"],
+      lon: ["lon", "longitude", "x", "bujur"],
+      lat: ["lat", "latitude", "y", "lintang"],
+      iri: ["iri", "nilai iri"],
+      treatment: ["treatment", "penanganan", "program"],
+      tahun: ["tahun", "tahun data"] 
     };
 
+    // FUNGSI GETVAL YANG SUDAH DITINGKATKAN (KEBAL SPASI & KAPITALISASI)
     const getVal = (item: any, keys: string[]) => {
+      // Normalisasi semua nama kolom dari Excel (jadikan huruf kecil & hapus spasi ujung)
+      const normalizedItem: any = {};
+      for (const k in item) {
+        normalizedItem[k.trim().toLowerCase()] = item[k];
+      }
+      
+      // Pencarian data
       for (const key of keys) {
-        if (item[key] !== undefined && item[key] !== null && item[key] !== "") {
-          return item[key];
+        const normalizedKey = key.trim().toLowerCase();
+        if (normalizedItem[normalizedKey] !== undefined && normalizedItem[normalizedKey] !== null && normalizedItem[normalizedKey] !== "") {
+          return normalizedItem[normalizedKey];
         }
       }
       return null;
