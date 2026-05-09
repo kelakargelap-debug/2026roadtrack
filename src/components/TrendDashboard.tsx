@@ -72,6 +72,12 @@ export const TrendDashboard = ({ ruasData, availableYears }: { ruasData: any[], 
   const [filterTreatment, setFilterTreatment] = useState<string>('all');
   const [showPrediksi, setShowPrediksi] = useState(true);
   const [showThreshold, setShowThreshold] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 50;
+
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [filterRuas, filterSegmen, filterTren, filterKondisi, filterTreatment]);
 
   // Parse data
   const segmentsStats = useMemo(() => {
@@ -534,7 +540,32 @@ export const TrendDashboard = ({ ruasData, availableYears }: { ruasData: any[], 
           </div>
           
           <div className="overflow-x-auto max-h-[500px]">
-            <table className="w-full text-left text-xs whitespace-nowrap">
+            
+          {/* Pagination Controls Top */}
+          <div className="px-4 py-2 bg-white flex items-center justify-between border-b border-slate-200 text-sm">
+            <span className="text-slate-500 font-bold">
+              Menampilkan {(currentPage - 1) * ITEMS_PER_PAGE + 1} - {Math.min(currentPage * ITEMS_PER_PAGE, filteredSegments.length)} dari {filteredSegments.length} segmen
+            </span>
+            <div className="flex items-center gap-2">
+              <button 
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                className="px-3 py-1 border border-slate-300 rounded font-bold text-slate-600 disabled:opacity-50 hover:bg-slate-50"
+              >
+                Prev
+              </button>
+              <span className="font-bold text-[#003B7A] px-2">{currentPage} / {Math.ceil(filteredSegments.length / ITEMS_PER_PAGE) || 1}</span>
+              <button 
+                disabled={currentPage >= Math.ceil(filteredSegments.length / ITEMS_PER_PAGE)}
+                onClick={() => setCurrentPage(p => p + 1)}
+                className="px-3 py-1 border border-slate-300 rounded font-bold text-slate-600 disabled:opacity-50 hover:bg-slate-50"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+          
+          <table className="w-full text-left text-xs whitespace-nowrap">
               <thead className="bg-slate-100 sticky top-0 border-b z-10">
                 <tr>
                   <th className="p-3 font-bold text-slate-500 uppercase">Alert</th>
@@ -550,7 +581,7 @@ export const TrendDashboard = ({ ruasData, availableYears }: { ruasData: any[], 
                 </tr>
               </thead>
               <tbody>
-                {filteredSegments.map((s, i) => {
+                {filteredSegments.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE).map((s, i) => {
                   let alertBadge = null;
                   if (s.alert === 'Merah') {
                     alertBadge = <span className="bg-red-100 text-red-700 font-bold px-2 py-0.5 rounded flex items-center gap-1 border border-red-200"><div className="w-2 h-2 rounded-full bg-red-600 animate-pulse"></div> Kritis</span>;
