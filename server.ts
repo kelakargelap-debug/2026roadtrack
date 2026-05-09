@@ -204,8 +204,12 @@ async function startServer() {
 
         const segmentId = `${noRuas}_${staAwal}_${staAkhir}`;
 
-        // Validasi minimum: Nomor ruas harus ada
-        if (!noRuas || noRuas === "" || segmentId === "_0_0") continue;
+        // === TAMBAHKAN BLOK PENDETEKSI BARIS RUSAK INI ===
+        if (!noRuas || noRuas === "" || segmentId === "_0_0") {
+           console.log(`[DITOLAK] Baris diabaikan! No Ruas: "${noRuas}", STA Awal: ${staAwal}, STA Akhir: ${staAkhir}`);
+           continue;
+        }
+        // =================================================
 
         ruasData.set(noRuas, { namaJalan, ppk });
         segmenData.set(segmentId, { noRuas, staAwal, staAkhir, lon, lat });
