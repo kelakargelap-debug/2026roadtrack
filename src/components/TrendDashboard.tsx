@@ -303,21 +303,21 @@ export const TrendDashboard = ({ ruasData, availableYears }: { ruasData: any[], 
         s.no_ruas,
         s.segment_id,
         s.sta,
-        s.lastIri.toFixed(2),
+        s.lastIri.toFixed(2).replace('.', ','),
         s.kondisi,
-        s.deltaIri.toFixed(2),
+        s.deltaIri.toFixed(2).replace('.', ','),
         s.tren,
         s.lastTreatmentInfo ? s.lastTreatmentInfo.type : '-',
         s.lastTreatmentInfo ? s.lastTreatmentInfo.age : '-',
         s.lastTreatmentInfo ? s.lastTreatmentInfo.efektivitas : '-',
         s.rekomendasi,
         s.note || '-',
-        s.prediksi3.toFixed(2),
-        s.skorPrioritas.toFixed(2)
-      ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',');
+        s.prediksi3.toFixed(2).replace('.', ','),
+        s.skorPrioritas.toFixed(2).replace('.', ',')
+      ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(';');
     });
 
-    const csvContent = [headers.join(','), ...rows].join('\n');
+    const csvContent = "\uFEFF" + [headers.join(';'), ...rows].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -615,7 +615,7 @@ export const TrendDashboard = ({ ruasData, availableYears }: { ruasData: any[], 
                       <td className="p-3 font-black text-blue-900">{s.segment_id} <br/><span className="font-normal text-slate-500 text-[10px]">{s.sta}</span></td>
                       
                       <td className="p-3 text-center border-l bg-blue-50/30 font-black text-blue-700">
-                        +{s.deltaIri.toFixed(2)}
+                        +{s.deltaIri.toFixed(2).replace('.', ',')}
                       </td>
                       <td className="p-3 text-center bg-blue-50/30">
                         <div className="flex flex-col gap-1 items-center">
@@ -623,7 +623,7 @@ export const TrendDashboard = ({ ruasData, availableYears }: { ruasData: any[], 
                             {s.tren}
                           </span>
                           <span className="px-2 py-0.5 rounded font-bold text-white shadow-sm w-24" style={{backgroundColor: (KONDISI_COLORS as any)[s.kondisi]}}>
-                            {s.kondisi} ({s.lastIri.toFixed(2)})
+                            {s.kondisi} ({s.lastIri.toFixed(2).replace('.', ',')})
                           </span>
                         </div>
                       </td>
@@ -638,7 +638,7 @@ export const TrendDashboard = ({ ruasData, availableYears }: { ruasData: any[], 
                         </div>
                       </td>
 
-                      <td className="p-3 text-center border-l bg-orange-50/30 font-bold text-orange-800">{s.prediksi3.toFixed(2)}</td>
+                      <td className="p-3 text-center border-l bg-orange-50/30 font-bold text-orange-800">{s.prediksi3.toFixed(2).replace('.', ',')}</td>
                       
                       <td className="p-3 text-center border-l">
                         <div className="font-black text-lg bg-slate-100 w-12 h-12 flex flex-col items-center justify-center rounded-lg mx-auto shadow-sm border border-slate-200">
