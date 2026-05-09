@@ -224,9 +224,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
         
         setUploadProgress(40); // Sending...
         
-        await axios.post('/api/import/save', { data }, {
-            timeout: 60000 // 60 seconds timeout for 4000 rows
-        });
+        await axios.post('/api/import/save', { data });
 
         setUploadProgress(100);
         setTimeout(() => {
