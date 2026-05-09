@@ -131,6 +131,11 @@ async function startServer() {
     const { data } = req.body;
     if (!Array.isArray(data)) return res.status(400).json({ detail: "Data harus berupa array" });
 
+    // === TAMBAHKAN 3 BARIS INI UNTUK INVESTIGASI ===
+    console.log("=== INSPEKSI BARIS PERTAMA DARI EXCEL ===");
+    console.log(data[0]); 
+    console.log("=========================================");
+
     // --- 1. FUNGSI HELPER & PEMETAAN KOLOM ---
     const mapping = {
       noRuas: ["NO RUAS", "NO. RUAS", "No Ruas", "no_ruas"],
