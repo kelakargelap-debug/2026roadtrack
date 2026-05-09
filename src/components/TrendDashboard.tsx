@@ -300,7 +300,7 @@ export const TrendDashboard = ({ ruasData, availableYears }: { ruasData: any[], 
       return [
         idx + 1,
         s.alert ? 'Waspada' : 'Aman',
-        s.ruas_id,
+        s.no_ruas,
         s.segment_id,
         s.sta,
         s.lastIri.toFixed(2),
