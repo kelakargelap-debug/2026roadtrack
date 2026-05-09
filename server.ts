@@ -105,12 +105,16 @@ async function startServer() {
     const totalPanjang = (await pool.query("SELECT SUM(panjang_km) as sum FROM ruas_jalan")).rows[0];
     const totalSegmen = (await pool.query("SELECT COUNT(*) as count FROM segmen_jalan")).rows[0];
     
-    // Get latest available year
-    const lastYearRow = (await pool.query("SELECT MAX(tahun) as year FROM annual_data")).rows[0];
-    const lastYear = lastYearRow?.year ? String(lastYearRow.year) : null;
+    // Mengambil tahun dari query parameter, jika tidak ada baru ambil MAX
+    let selectedYear = req.query.year;
     
-    const condition = lastYear 
-      ? (await pool.query("SELECT COUNT(*) as count FROM annual_data WHERE tahun = $1 AND iri <= 4", [lastYear])).rows[0]
+    if (!selectedYear) {
+      const lastYearRow = (await pool.query("SELECT MAX(tahun) as year FROM annual_data")).rows[0];
+      selectedYear = lastYearRow?.year;
+    }
+
+    const condition = selectedYear 
+      ? (await pool.query("SELECT COUNT(*) as count FROM annual_data WHERE tahun = $1 AND iri <= 4", [String(selectedYear)])).rows[0]
       : { count: 0 };
 
     res.json({
@@ -119,7 +123,7 @@ async function startServer() {
       baik: parseInt(condition.count),
       total_segmen: parseInt(totalSegmen.count),
       pct_mantap: parseInt(totalSegmen.count) > 0 ? (parseInt(condition.count) / parseInt(totalSegmen.count) * 100).toFixed(1) : 0,
-      reporting_year: lastYear || "-"
+      reporting_year: selectedYear ? String(selectedYear) : "-"
     });
   });
 
@@ -137,7 +141,8 @@ async function startServer() {
       lon: ["LONGITUDE", "Longitude", "X", "Bujur", "Bujur (X)"],
       lat: ["LATITUDE", "Latitude", "Y", "Lintang", "Lintang (Y)"],
       iri: ["IRI", "Nilai IRI", "iri"],
-      treatment: ["PENANGANAN", "Treatment", "Program", "treatment"]
+      treatment: ["PENANGANAN", "Treatment", "Program", "treatment"],
+      tahun: ["TAHUN", "Tahun", "tahun", "TAHUN DATA"]
     };
 
     const getVal = (item: any, keys: string[]) => {
@@ -179,8 +184,10 @@ async function startServer() {
         const iri = parseNum(getVal(item, mapping.iri));
         const treatment = String(getVal(item, mapping.treatment) || "NONE").trim();
 
-        // Parameter tahun diasumsikan dikirim dari klien atau diset default ke 2025
-        const tahun = req.body.tahun || "2025"; 
+        // UBAH BAGIAN INI: Sistem akan memprioritaskan pembacaan dari kolom Excel
+        const tahunExcel = String(getVal(item, mapping.tahun) || "").trim();
+        const tahun = tahunExcel || req.body.tahun || "2025"; 
+
         const segmentId = `${noRuas}_${staAwal}_${staAkhir}`;
 
         // Validasi minimum: Nomor ruas harus ada
@@ -267,24 +274,52 @@ async function startServer() {
   });
 
   app.get("/api/ruas/all", async (req, res) => {
-    const { rows: ruas } = await pool.query("SELECT * FROM ruas_jalan");
-    const result = await Promise.all(ruas.map(async (r: any) => {
-      const { rows: segments } = await pool.query(
-        "SELECT * FROM segmen_jalan WHERE ruas_id = $1 ORDER BY sta_awal ASC", [r.id]
-      );
-      const segmentsWithData = await Promise.all(segments.map(async (s: any) => {
-        const { rows: annuals } = await pool.query(
-          "SELECT tahun, iri, treatment FROM annual_data WHERE segmen_id = $1", [s.id]
-        );
-        const yearsData: any = {};
-        annuals.forEach((a: any) => {
-          yearsData[a.tahun] = { iri: a.iri, treatment: a.treatment };
-        });
-        return { ...s, ...yearsData };
+    try {
+      // 1. Eksekusi HANYA 3 Kueri untuk mengambil seluruh tabel secara agregat
+      const ruasPromise = pool.query("SELECT * FROM ruas_jalan");
+      const segmenPromise = pool.query("SELECT * FROM segmen_jalan ORDER BY ruas_id, sta_awal ASC");
+      const annualPromise = pool.query("SELECT * FROM annual_data");
+
+      // Menunggu ketiga kueri selesai secara paralel untuk efisiensi waktu maksimal
+      const [ruasRes, segmenRes, annualRes] = await Promise.all([ruasPromise, segmenPromise, annualPromise]);
+
+      const ruasRows = ruasRes.rows;
+      const segmenRows = segmenRes.rows;
+      const annualRows = annualRes.rows;
+
+      // 2. Perakitan Data Tahunan (Kondisi Jalan) di dalam Memori
+      const annualMap = new Map();
+      for (const a of annualRows) {
+        if (!annualMap.has(a.segmen_id)) {
+          annualMap.set(a.segmen_id, {});
+        }
+        // Membuat struktur: { "2024": { iri: 4, treatment: "Rutin" }, "2025": { ... } }
+        annualMap.get(a.segmen_id)[a.tahun] = { iri: a.iri, treatment: a.treatment };
+      }
+
+      // 3. Perakitan Data Segmen yang digabungkan dengan Data Tahunan
+      const segmenMap = new Map();
+      for (const s of segmenRows) {
+        if (!segmenMap.has(s.ruas_id)) {
+          segmenMap.set(s.ruas_id, []);
+        }
+        const yearsData = annualMap.get(s.id) || {};
+        // Menggabungkan properti segmen dengan metrik tahunannya
+        segmenMap.get(s.ruas_id).push({ ...s, ...yearsData });
+      }
+
+      // 4. Penggabungan Final ke Data Ruas Jalan
+      const result = ruasRows.map((r) => ({
+        ...r,
+        segments: segmenMap.get(r.id) || []
       }));
-      return { ...r, segments: segmentsWithData };
-    }));
-    res.json(result);
+
+      res.json(result);
+
+    } catch (error) {
+      console.error("Kesalahan Pembuatan Data Ruas:", error);
+      res.status(500).json({ detail: "Gagal memuat struktur data ruas jalan." });
+    }
   });
 
   app.get("/api/segmen/search", async (req, res) => {
