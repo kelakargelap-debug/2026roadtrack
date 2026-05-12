@@ -316,38 +316,59 @@ async function startServer() {
   });
 
   app.get("/api/ruas/all", (req, res) => {
-    const ruas = db.prepare("SELECT * FROM ruas_jalan").all();
-    const result = ruas.map((r: any) => {
-      const segments = db.prepare("SELECT * FROM segmen_jalan WHERE ruas_id = ? ORDER BY sta_awal ASC").all(r.id);
-      
-      // Calculate length if missing
-      let panjang = r.panjang_km;
-      if (!panjang && segments.length > 0) {
-        let min = Infinity;
-        let max = -Infinity;
-        segments.forEach((s: any) => {
-          if (s.sta_awal !== null && s.sta_awal < min) min = s.sta_awal;
-          if (s.sta_akhir !== null && s.sta_akhir > max) max = s.sta_akhir;
-        });
-        if (min !== Infinity && max !== -Infinity) {
-          panjang = parseFloat(((max - min) / 1000).toFixed(3));
-        }
-      }
+    try {
+      const ruas = db.prepare("SELECT * FROM ruas_jalan").all();
+      const allSegments = db.prepare("SELECT * FROM segmen_jalan ORDER BY ruas_id, sta_awal ASC").all();
+      const allAnnuals = db.prepare("SELECT * FROM annual_data").all();
 
-      return {
-        ...r,
-        panjang_km: panjang,
-        segments: segments.map((s: any) => {
-          const annuals = db.prepare("SELECT tahun, iri, sdi, treatment FROM annual_data WHERE segmen_id = ?").all(s.id);
-          const yearsData: any = {};
-          annuals.forEach((a: any) => {
-            yearsData[a.tahun] = { iri: a.iri, sdi: a.sdi, treatment: a.treatment };
+      // Indexing for faster joining
+      const annualsBySegmen = new Map();
+      allAnnuals.forEach((a: any) => {
+        if (!annualsBySegmen.has(a.segmen_id)) annualsBySegmen.set(a.segmen_id, []);
+        annualsBySegmen.get(a.segmen_id).push(a);
+      });
+
+      const segmentsByRuas = new Map();
+      allSegments.forEach((s: any) => {
+        if (!segmentsByRuas.has(s.ruas_id)) segmentsByRuas.set(s.ruas_id, []);
+        
+        const annuals = annualsBySegmen.get(s.id) || [];
+        const yearsData: any = {};
+        annuals.forEach((a: any) => {
+          yearsData[a.tahun] = { iri: a.iri, sdi: a.sdi, treatment: a.treatment };
+        });
+        
+        segmentsByRuas.get(s.ruas_id).push({ ...s, ...yearsData });
+      });
+
+      const result = ruas.map((r: any) => {
+        const segments = segmentsByRuas.get(r.id) || [];
+        
+        // Calculate length if missing
+        let panjang = r.panjang_km;
+        if (!panjang && segments.length > 0) {
+          let min = Infinity;
+          let max = -Infinity;
+          segments.forEach((s: any) => {
+            if (s.sta_awal !== null && s.sta_awal < min) min = s.sta_awal;
+            if (s.sta_akhir !== null && s.sta_akhir > max) max = s.sta_akhir;
           });
-          return { ...s, ...yearsData };
-        })
-      };
-    });
-    res.json(result);
+          if (min !== Infinity && max !== -Infinity) {
+            panjang = parseFloat(((max - min) / 1000).toFixed(3));
+          }
+        }
+
+        return {
+          ...r,
+          panjang_km: panjang,
+          segments: segments
+        };
+      });
+      res.json(result);
+    } catch (error) {
+      console.error("Fetch All Error:", error);
+      res.status(500).json({ detail: "Gagal mengambil data dari database" });
+    }
   });
 
   app.get("/api/segmen/search", (req, res) => {

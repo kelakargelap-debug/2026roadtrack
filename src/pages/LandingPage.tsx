@@ -38,19 +38,37 @@ const LandingPage = () => {
     <div className="relative min-h-screen bg-[#003B7A] overflow-hidden flex flex-col lg:flex-row">
       {/* Background Ornaments */}
       <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-[10%] -left-[10%] w-[60%] h-[60%] bg-blue-500/20 rounded-full blur-[120px]"></div>
-        <div className="absolute -bottom-[10%] -right-[10%] w-[50%] h-[50%] bg-[#F5A800]/10 rounded-full blur-[120px]"></div>
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 2, ease: "easeOut" }}
+          className="absolute -top-[10%] -left-[10%] w-[60%] h-[60%] bg-blue-500/20 rounded-full blur-[120px]"
+        ></motion.div>
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 2, ease: "easeOut", delay: 0.5 }}
+          className="absolute -bottom-[10%] -right-[10%] w-[50%] h-[50%] bg-[#F5A800]/10 rounded-full blur-[120px]"
+        ></motion.div>
         <div className="absolute inset-0 opacity-[0.05] bg-[url('https://www.transparenttextures.com/patterns/topography.png')]"></div>
       </div>
 
       {/* Main Content Area (Landing) - 2/3 on desktop */}
       <motion.div 
         layout
-        transition={{ type: 'spring', damping: 25, stiffness: 120 }}
+        transition={{ 
+          layout: { type: 'spring', damping: 30, stiffness: 150 },
+          default: { duration: 0.2 }
+        }}
         className={`relative z-10 flex flex-col ${showLogin ? 'lg:w-2/3' : 'lg:w-full'} w-full min-h-screen`}
       >
         {/* Navbar */}
-        <header className="p-6 lg:p-10 flex justify-between items-center bg-transparent shrink-0">
+        <motion.header 
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+          className="p-6 lg:p-10 flex justify-between items-center bg-transparent shrink-0"
+        >
           <div className="flex items-center gap-4">
             <img 
               src="https://upload.wikimedia.org/wikipedia/commons/c/c6/Logo_Kementerian_Pekerjaan_Umum_Republik_Indonesia.svg" 
@@ -70,7 +88,7 @@ const LandingPage = () => {
                 initial={{ opacity: 0, scale: 0.9, x: 20 }}
                 animate={{ opacity: 1, scale: 1, x: 0 }}
                 exit={{ opacity: 0, scale: 0.9, x: 10 }}
-                transition={{ duration: 0.2 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
                 onClick={() => setShowLogin(true)}
                 className="flex items-center gap-2 bg-[#F5A800] text-[#003B7A] font-black px-6 py-2.5 rounded-full shadow-xl hover:shadow-[#F5A800]/20 hover:scale-105 active:scale-95 uppercase text-xs tracking-wider"
               >
@@ -79,32 +97,55 @@ const LandingPage = () => {
               </motion.button>
             )}
           </AnimatePresence>
-        </header>
+        </motion.header>
 
         {/* Hero Section */}
         <main className="flex-1 flex flex-col justify-center items-start px-6 lg:px-20 py-20 max-w-5xl">
           <motion.div
-            layout
-            initial={{ opacity: 0, x: -30 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.8 }}
+            initial="hidden"
+            animate="visible"
+            variants={{
+              hidden: { opacity: 0 },
+              visible: { 
+                opacity: 1,
+                transition: { staggerChildren: 0.15, delayChildren: 0.2 }
+              }
+            }}
           >
-            <h1 className="text-white text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-black mb-8 leading-[1.1] tracking-tight">
+            <motion.h1 
+              variants={{
+                hidden: { opacity: 0, y: 30 },
+                visible: { opacity: 1, y: 0, transition: { duration: 0.8, ease: [0.22, 1, 0.36, 1] } }
+              }}
+              className="text-white text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-black mb-8 leading-[1.1] tracking-tight"
+            >
               Sistem Informasi <br />
               <span className="text-[#F5A800]">Kemantapan Jalan</span> <br />
               Provinsi Maluku
-            </h1>
+            </motion.h1>
             
-            <p className="text-blue-100 text-lg md:text-xl font-medium mb-12 max-w-2xl leading-relaxed opacity-90">
+            <motion.p 
+              variants={{
+                hidden: { opacity: 0, y: 30 },
+                visible: { opacity: 1, y: 0, transition: { duration: 0.8, ease: [0.22, 1, 0.36, 1] } }
+              }}
+              className="text-blue-100 text-lg md:text-xl font-medium mb-12 max-w-2xl leading-relaxed opacity-90"
+            >
               Mendukung konektivitas nasional melalui pengelolaan dan pembangunan infrastruktur jalan yang terpadu, mantap, dan berkelanjutan untuk kemajuan Bumi Raja-Raja.
-            </p>
+            </motion.p>
 
             <AnimatePresence>
               {!showLogin && (
                 <motion.button 
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 10 }}
+                  variants={{
+                    hidden: { opacity: 0, scale: 0.9 },
+                    visible: { opacity: 1, scale: 1, transition: { duration: 0.5, ease: "easeOut" } }
+                  }}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  initial="hidden"
+                  animate="visible"
+                  exit="hidden"
                   onClick={() => setShowLogin(true)}
                   className="group flex items-center gap-4 bg-white/10 backdrop-blur-md border border-white/20 text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-[#F5A800] hover:text-[#003B7A] hover:border-[#F5A800] transition-all duration-300 shadow-2xl"
                 >
@@ -117,7 +158,7 @@ const LandingPage = () => {
         </main>
 
         <footer className="p-8 lg:px-20 text-blue-300/40 text-xs font-bold uppercase tracking-[0.2em]">
-          &copy; 2026 BPJN MALUKU - KEMENTERIAN PEKERJAAN UMUM DAN PERUMAHAN RAKYAT
+          &copy; 2026 BPJN MALUKU - KEMENTERIAN PEKERJAAN UMUM
         </footer>
       </motion.div>
 
@@ -128,7 +169,7 @@ const LandingPage = () => {
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
-            transition={{ type: 'spring', damping: 25, stiffness: 120 }}
+            transition={{ type: 'spring', damping: 30, stiffness: 150 }}
             className="lg:w-1/3 w-full bg-white relative z-20 shadow-[-20px_0_60px_rgba(0,0,0,0.2)] flex flex-col"
           >
             {/* Close Button Mobile / Desktop Toggle */}

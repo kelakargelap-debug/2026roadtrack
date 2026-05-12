@@ -735,6 +735,8 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
     setSelectedIds(newSet);
   };
 
+  const [isMapLoading, setIsMapLoading] = useState(false);
+
   // Initialize Map
   useEffect(() => {
     if (!isLeafletLoaded || mapRef.current) return;
@@ -742,7 +744,8 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
     // Default center Ambon
     const map = (window as any).L.map('gis-map', { 
       zoomControl: false,
-      preferCanvas: true 
+      preferCanvas: true,
+      renderer: (window as any).L.canvas()
     }).setView([-3.67, 128.20], 13);
     (window as any).L.control.zoom({ position: 'bottomright' }).addTo(map);
 
@@ -753,98 +756,56 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
     mapRef.current = map;
 
     return () => {
-      map.remove();
-      mapRef.current = null;
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
     };
   }, [isLeafletLoaded]);
 
-  // Render/Update Polylines based on year and mode
+  // Optimized Render/Update Polylines based on year and mode
   useEffect(() => {
-    if (!mapRef.current) return;
+    if (!mapRef.current || !isLeafletLoaded) return;
 
-    try {
-      // Clear old group
-      if (mapLayersRef.current && mapRef.current) {
-        mapRef.current.removeLayer(mapLayersRef.current);
-      }
+    const renderMap = async () => {
+      setIsMapLoading(true);
+      
+      // Use a small timeout to let the UI update first
+      await new Promise(resolve => setTimeout(resolve, 0));
 
-      const L = (window as any).L;
-      if (!L) return;
+      try {
+        const L = (window as any).L;
+        if (!L) return;
 
-      if (!Array.isArray(ruasData) || ruasData.length === 0) return;
-
-      const polylines: any[] = [];
-      const allPoints: any[] = [];
-      const selectedRoadPoints: any[] = [];
-
-      ruasData.forEach(ruas => {
-        if (!ruas || !Array.isArray(ruas.segments)) return;
-        
-        const pengelola = String(ruas.pengelola || 'nasional').toLowerCase();
-        const kabupatenKota = String(ruas.kabupaten_kota || '').toLowerCase();
-        const isSelected = selectedRuasId && (String(ruas.no_ruas) === String(selectedRuasId) || String(ruas.id) === String(selectedRuasId));
-
-        if (filterPengelola) {
-          if (filterPengelola === 'nasional') {
-             if (pengelola !== 'nasional') return;
-          } else if (filterPengelola === 'daerah') {
-             if (pengelola === 'nasional') return;
-          } else {
-             if (pengelola !== filterPengelola && kabupatenKota !== filterPengelola) return;
-          }
+        // Clear old group
+        if (mapLayersRef.current) {
+          mapRef.current.removeLayer(mapLayersRef.current);
         }
 
-        ruas.segments.forEach((seg, idx) => {
-          if (!seg) return;
-          const lat = parseFloat(seg.latitude || seg.lat1 || seg.lat);
-          const lon = parseFloat(seg.longitude || seg.lon1 || seg.lon);
-          
-          if (isNaN(lat) || isNaN(lon) || lat === 0 || lon === 0) return; 
+        if (!Array.isArray(ruasData) || ruasData.length === 0) {
+           setIsMapLoading(false);
+           return;
+        }
 
-          const point: [number, number] = [lat, lon];
-          allPoints.push(point);
-          if (isSelected) selectedRoadPoints.push(point);
+        const polylines: any[] = [];
+        const allPoints: any[] = [];
+        const selectedRoadPoints: any[] = [];
 
-          let nextLat = lat + 0.0001; 
-          let nextLon = lon + 0.0001;
-
-          const nextSeg = ruas.segments[idx + 1];
-          if (nextSeg) {
-            const nl = parseFloat(nextSeg.latitude || nextSeg.lat1 || nextSeg.lat);
-            const nlo = parseFloat(nextSeg.longitude || nextSeg.lon1 || nextSeg.lon);
-            if (!isNaN(nl) && !isNaN(nlo) && nl !== 0 && nlo !== 0) {
-              nextLat = nl;
-              nextLon = nlo;
-            }
-          }
-
-          const color = getSegmentColor(ruas, seg, year, mode);
-          
-          const polyline = L.polyline(
-            [[lat, lon], [nextLat, nextLon]], 
-            { 
-              color: color || '#334155', 
-              weight: isSelected ? 12 : 7,
-              opacity: selectedRuasId && !isSelected ? 0.2 : 1,
-              lineCap: 'round',
-              lineJoin: 'round'
-            }
-          );
-
-          const dataYear = seg[year] || { iri: 0, sdi: 0, treatment: 'NONE' };
-          const isNasional = pengelola === 'nasional';
+        // Helper for building tooltip content once needed
+        const getTooltipContent = (ruas: any, seg: any, yearData: any, isNasional: boolean) => {
           const conditionLabel = isNasional ? 'IRI' : 'SDI';
-          const conditionValRaw = isNasional ? (dataYear.iri || 0) : (dataYear.sdi || 0);
+          const conditionValRaw = isNasional ? (yearData.iri || 0) : (yearData.sdi || 0);
           const conditionValDisplay = (typeof conditionValRaw === 'number' && !isNaN(conditionValRaw) && conditionValRaw > 0) 
             ? conditionValDisplayFix(conditionValRaw, isNasional)
             : String(conditionValRaw || '-');
 
-          const kat = isNasional ? getIriCategory(dataYear.iri) : getSdiCategory(dataYear.sdi);
+          const kat = isNasional ? getIriCategory(yearData.iri) : getSdiCategory(yearData.sdi);
           const colorObj = isNasional ? (IRI_COLORS as any)[kat] : (SDI_COLORS as any)[kat];
+          const roadName = ruas.nama_jalan === 'Tanpa Nama' ? (ruas.no_ruas || 'Tanpa Nama') : (ruas.nama_jalan || ruas.nama || ruas.no_ruas || 'Tanpa Nama');
 
-          polyline.bindTooltip(`
+          return `
             <div class="font-sans text-xs p-1">
-              <strong class="block border-b pb-1 mb-1 text-[11px]">${ruas.nama_jalan === 'Tanpa Nama' ? (ruas.no_ruas || 'Tanpa Nama') : (ruas.nama_jalan || ruas.nama || ruas.no_ruas || 'Tanpa Nama')}</strong>
+              <strong class="block border-b pb-1 mb-1 text-[11px]">${roadName}</strong>
               <div class="flex justify-between gap-4 mt-1">
                 <span>STA:</span>
                 <b>${formatSTA(seg.sta_awal)} - ${formatSTA(seg.sta_akhir)}</b>
@@ -855,33 +816,116 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
               </div>
               <div class="flex justify-between gap-4">
                 <span>Treatment:</span>
-                <b class="text-blue-600">${dataYear.treatment && dataYear.treatment !== 'NONE' ? dataYear.treatment : '-'}</b>
+                <b class="text-blue-600">${yearData.treatment && yearData.treatment !== 'NONE' ? yearData.treatment : '-'}</b>
               </div>
             </div>
-          `, { sticky: true, className: 'custom-tooltip' });
+          `;
+        };
 
-          polyline.on('click', (e: any) => {
-            L.DomEvent.stopPropagation(e);
-            setSelectedRuasId(ruas.no_ruas || ruas.id);
+        // We'll process in chunks to keep UI responsive
+        const CHUNK_SIZE = 50; 
+        for (let i = 0; i < ruasData.length; i += CHUNK_SIZE) {
+          const chunk = ruasData.slice(i, i + CHUNK_SIZE);
+          
+          chunk.forEach(ruas => {
+            if (!ruas || !Array.isArray(ruas.segments)) return;
+            
+            const pengelola = String(ruas.pengelola || 'nasional').toLowerCase();
+            const kabupatenKota = String(ruas.kabupaten_kota || '').toLowerCase();
+            const isSelectedRuas = selectedRuasId && (String(ruas.no_ruas) === String(selectedRuasId) || String(ruas.id) === String(selectedRuasId));
+
+            if (filterPengelola) {
+              if (filterPengelola === 'nasional') {
+                 if (pengelola !== 'nasional') return;
+              } else if (filterPengelola === 'daerah') {
+                 if (pengelola === 'nasional') return;
+              } else {
+                 if (pengelola !== filterPengelola && kabupatenKota !== filterPengelola) return;
+              }
+            }
+
+            ruas.segments.forEach((seg, idx) => {
+              if (!seg) return;
+              const lat = parseFloat(seg.latitude || seg.lat1 || seg.lat);
+              const lon = parseFloat(seg.longitude || seg.lon1 || seg.lon);
+              
+              if (isNaN(lat) || isNaN(lon) || lat === 0 || lon === 0) return; 
+
+              const point: [number, number] = [lat, lon];
+              allPoints.push(point);
+              if (isSelectedRuas) selectedRoadPoints.push(point);
+
+              let nextLat = lat + 0.0001; 
+              let nextLon = lon + 0.0001;
+
+              const nextSeg = ruas.segments[idx + 1];
+              if (nextSeg) {
+                const nl = parseFloat(nextSeg.latitude || nextSeg.lat1 || nextSeg.lat);
+                const nlo = parseFloat(nextSeg.longitude || nextSeg.lon1 || nextSeg.lon);
+                if (!isNaN(nl) && !isNaN(nlo) && nl !== 0 && nlo !== 0) {
+                  nextLat = nl;
+                  nextLon = nlo;
+                }
+              }
+
+              const color = getSegmentColor(ruas, seg, year, mode);
+              const isNasional = pengelola === 'nasional';
+              
+              const polyline = L.polyline(
+                [[lat, lon], [nextLat, nextLon]], 
+                { 
+                  color: color || '#334155', 
+                  weight: isSelectedRuas ? 12 : 7,
+                  opacity: selectedRuasId && !isSelectedRuas ? 0.2 : 1,
+                  lineCap: 'round',
+                  lineJoin: 'round'
+                }
+              );
+
+              // Improved tooltip: only compute HTML on hover if possible, 
+              // but standard bindTooltip is okay if we optimize the string build.
+              const dataYear = seg[year] || { iri: 0, sdi: 0, treatment: 'NONE' };
+              
+              // Lazy bind or just pre-bind optimized
+              polyline.bindTooltip(() => getTooltipContent(ruas, seg, dataYear, isNasional), { 
+                sticky: true, 
+                className: 'custom-tooltip' 
+              });
+
+              polyline.on('click', (e: any) => {
+                L.DomEvent.stopPropagation(e);
+                setSelectedRuasId(ruas.no_ruas || ruas.id);
+              });
+
+              polylines.push(polyline);
+            });
           });
 
-          polylines.push(polyline);
-        });
-      });
-      
-      if (polylines.length > 0) {
-        mapLayersRef.current = L.layerGroup(polylines).addTo(mapRef.current);
-        
-        // Auto fit zoom
-        if (selectedRuasId && selectedRoadPoints.length > 0) {
-           mapRef.current.fitBounds(L.latLngBounds(selectedRoadPoints), { padding: [50, 50], maxZoom: 16 });
-        } else if (!selectedRuasId && allPoints.length > 0) {
-           mapRef.current.fitBounds(L.latLngBounds(allPoints), { padding: [20, 20] });
+          // Yield to UI if many segments
+          if (polylines.length > 500) {
+             await new Promise(resolve => requestAnimationFrame(resolve));
+          }
         }
+        
+        if (polylines.length > 0) {
+          mapLayersRef.current = L.layerGroup(polylines).addTo(mapRef.current);
+          
+          // Auto fit zoom
+          if (selectedRuasId && selectedRoadPoints.length > 0) {
+             mapRef.current.fitBounds(L.latLngBounds(selectedRoadPoints), { padding: [50, 50], maxZoom: 16 });
+          } else if (!selectedRuasId && allPoints.length > 0 && mapRef.current.getZoom() < 10) {
+             // Only auto-fit all if zoomed out or first load
+             mapRef.current.fitBounds(L.latLngBounds(allPoints), { padding: [20, 20] });
+          }
+        }
+      } catch (err) {
+        console.error("Error updating map polylines:", err);
+      } finally {
+        setIsMapLoading(false);
       }
-    } catch (err) {
-      console.error("Error updating map polylines:", err);
-    }
+    };
+
+    renderMap();
   }, [year, mode, selectedRuasId, isLeafletLoaded, ruasData, filterPengelola]);
 
   const MALUKU_AUTHORITIES = [
@@ -1381,6 +1425,14 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
         <div className="flex-1 relative overflow-hidden flex flex-col">
           {/* --- MAP VIEW --- */}
           <div className={`w-full h-full relative overflow-hidden ${mainView !== 'map' ? 'hidden' : ''}`}>
+            {isMapLoading && (
+              <div className="absolute inset-0 z-[600] bg-white/40 backdrop-blur-[2px] flex items-center justify-center pointer-events-none">
+                <div className="bg-white px-6 py-4 rounded-2xl shadow-2xl border border-slate-200 flex flex-col items-center gap-3">
+                  <div className="w-10 h-10 border-4 border-slate-200 border-t-[#003B7A] rounded-full animate-spin"></div>
+                  <span className="text-xs font-black text-[#003B7A] uppercase tracking-widest">Memproses Peta...</span>
+                </div>
+              </div>
+            )}
             <div id="gis-map" className="w-full h-full z-0"></div>
 
           {/* Unified Map Controls */}
