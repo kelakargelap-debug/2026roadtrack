@@ -1,92 +1,78 @@
-import "dotenv/config";
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import cors from "cors";
-import pg from "pg";
+import Database from "better-sqlite3";
 
 const SECRET_KEY = "roadtrack-super-secret";
-const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL || "postgresql://roaduser:roadpass123@localhost:5432/roadtrack",
-  ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false
-});
+const db = new Database("roadtrack.db", { timeout: 15000 });
 
 // Initialize Database
-async function initDatabase() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS users (
-      id SERIAL PRIMARY KEY,
-      name TEXT NOT NULL,
-      email TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
-      role TEXT NOT NULL,
-      is_active BOOLEAN DEFAULT true
-    )
-  `);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL,
+    is_active INTEGER DEFAULT 1
+  );
 
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS ruas_jalan (
-      id SERIAL PRIMARY KEY,
-      no_ruas TEXT UNIQUE NOT NULL,
-      nama_jalan TEXT NOT NULL,
-      ppk TEXT,
-      panjang_km DOUBLE PRECISION
-    )
-  `);
+  CREATE TABLE IF NOT EXISTS ruas_jalan (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    no_ruas TEXT UNIQUE NOT NULL,
+    nama_jalan TEXT NOT NULL,
+    ppk TEXT,
+    panjang_km REAL
+  );
 
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS segmen_jalan (
-      id SERIAL PRIMARY KEY,
-      ruas_id INTEGER REFERENCES ruas_jalan(id),
-      segment_id TEXT UNIQUE,
-      sta_awal DOUBLE PRECISION,
-      sta_akhir DOUBLE PRECISION,
-      longitude DOUBLE PRECISION,
-      latitude DOUBLE PRECISION
-    )
-  `);
+  CREATE TABLE IF NOT EXISTS segmen_jalan (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ruas_id INTEGER REFERENCES ruas_jalan(id),
+    segment_id TEXT UNIQUE,
+    sta_awal REAL,
+    sta_akhir REAL,
+    longitude REAL,
+    latitude REAL
+  );
 
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS annual_data (
-      id SERIAL PRIMARY KEY,
-      segmen_id INTEGER REFERENCES segmen_jalan(id),
-      tahun TEXT NOT NULL,
-      iri DOUBLE PRECISION,
-      treatment TEXT DEFAULT 'NONE',
-      UNIQUE(segmen_id, tahun)
-    )
-  `);
+  CREATE TABLE IF NOT EXISTS annual_data (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    segmen_id INTEGER REFERENCES segmen_jalan(id),
+    tahun TEXT NOT NULL,
+    iri REAL,
+    treatment TEXT DEFAULT 'NONE',
+    UNIQUE(segmen_id, tahun)
+  );
+`);
 
-  // Seed Admin User (admin@roadtrack.id / sibusibu)
-  const { rows } = await pool.query("SELECT * FROM users WHERE email = $1", ["admin@roadtrack.id"]);
+// Seed Admin User (admin@roadtrack.id / sibusibu)
+const adminExists = db.prepare("SELECT * FROM users WHERE email = ?").get("admin@roadtrack.id");
+if (!adminExists) {
   const hash = bcrypt.hashSync("sibusibu", 10);
-  if (rows.length === 0) {
-    await pool.query(
-      "INSERT INTO users (name, email, password_hash, role) VALUES ($1, $2, $3, $4)",
-      ["Super Admin", "admin@roadtrack.id", hash, "superadmin"]
-    );
-  } else {
-    await pool.query("UPDATE users SET password_hash = $1 WHERE email = $2", [hash, "admin@roadtrack.id"]);
-  }
+  db.prepare("INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?)").run(
+    "Super Admin", "admin@roadtrack.id", hash, "superadmin"
+  );
+} else {
+  // Update password to new one if it already exists
+  const hash = bcrypt.hashSync("sibusibu", 10);
+  db.prepare("UPDATE users SET password_hash = ? WHERE email = ?").run(hash, "admin@roadtrack.id");
 }
 
 async function startServer() {
-  await initDatabase();
-
   const app = express();
-  const PORT = parseInt(process.env.PORT || "3000", 10);
+  const PORT = 3000;
 
   app.use(cors());
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
   // API Routes
-  app.post("/api/auth/login", async (req, res) => {
+  app.post("/api/auth/login", (req, res) => {
     const { username, password } = req.body;
-    const { rows } = await pool.query("SELECT * FROM users WHERE email = $1", [username]);
-    const user = rows[0];
+    const user = db.prepare("SELECT * FROM users WHERE email = ?").get(username) as any;
     
     if (!user || !bcrypt.compareSync(password, user.password_hash)) {
       return res.status(401).json({ detail: "Email atau password salah" });
@@ -100,367 +86,312 @@ async function startServer() {
     });
   });
 
-  app.get("/api/dashboard/summary", async (req, res) => {
-    const totalRuas = (await pool.query("SELECT COUNT(*) as count FROM ruas_jalan")).rows[0];
-    const totalPanjang = (await pool.query("SELECT SUM(panjang_km) as sum FROM ruas_jalan")).rows[0];
-    const totalSegmen = (await pool.query("SELECT COUNT(*) as count FROM segmen_jalan")).rows[0];
+  app.get("/api/dashboard/summary", (req, res) => {
+    const totalRuas = db.prepare("SELECT COUNT(*) as count FROM ruas_jalan").get() as any;
+    const totalPanjang = db.prepare("SELECT SUM(panjang_km) as sum FROM ruas_jalan").get() as any;
+    const totalSegmen = db.prepare("SELECT COUNT(*) as count FROM segmen_jalan").get() as any;
     
-    // Mengambil tahun dari query parameter, jika tidak ada baru ambil MAX
-    let selectedYear = req.query.year;
+    // Get latest available year
+    const lastYearRow = db.prepare("SELECT MAX(tahun) as year FROM annual_data").get() as any;
+    const lastYear = lastYearRow?.year ? String(lastYearRow.year) : null;
     
-    if (!selectedYear) {
-      const lastYearRow = (await pool.query("SELECT MAX(tahun) as year FROM annual_data")).rows[0];
-      selectedYear = lastYearRow?.year;
-    }
-
-    const condition = selectedYear 
-      ? (await pool.query("SELECT COUNT(*) as count FROM annual_data WHERE tahun = $1 AND iri <= 4", [String(selectedYear)])).rows[0]
+    const condition = lastYear 
+      ? db.prepare("SELECT COUNT(*) as count FROM annual_data WHERE tahun = ? AND iri <= 4").get(lastYear) as any
       : { count: 0 };
 
     res.json({
-      total_ruas: parseInt(totalRuas.count),
-      total_panjang_km: parseFloat(totalPanjang.sum) || 0,
-      baik: parseInt(condition.count),
-      total_segmen: parseInt(totalSegmen.count),
-      pct_mantap: parseInt(totalSegmen.count) > 0 ? (parseInt(condition.count) / parseInt(totalSegmen.count) * 100).toFixed(1) : 0,
-      reporting_year: selectedYear ? String(selectedYear) : "-"
+      total_ruas: totalRuas.count,
+      total_panjang_km: totalPanjang.sum,
+      baik: condition.count,
+      total_segmen: totalSegmen.count,
+      pct_mantap: totalSegmen.count > 0 ? (condition.count / totalSegmen.count * 100).toFixed(1) : 0,
+      reporting_year: lastYear || "-"
     });
   });
 
-  app.post("/api/import/save", async (req, res) => {
+  app.post("/api/import/save", (req, res) => {
     const { data } = req.body;
     if (!Array.isArray(data)) return res.status(400).json({ detail: "Data harus berupa array" });
 
-    // === TAMBAHKAN 3 BARIS INI UNTUK INVESTIGASI ===
-    console.log("=== INSPEKSI BARIS PERTAMA DARI EXCEL ===");
-    console.log(data[0]); 
-    console.log("=========================================");
+    const insertRuas = db.prepare(`
+      INSERT INTO ruas_jalan (no_ruas, nama_jalan, ppk) 
+      VALUES (?, ?, ?)
+      ON CONFLICT(no_ruas) DO UPDATE SET 
+        nama_jalan = COALESCE(excluded.nama_jalan, ruas_jalan.nama_jalan),
+        ppk = COALESCE(excluded.ppk, ruas_jalan.ppk)
+    `);
+    
+    const insertSeg = db.prepare(`
+      INSERT INTO segmen_jalan (segment_id, ruas_id, sta_awal, sta_akhir, longitude, latitude)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(segment_id) DO UPDATE SET 
+        sta_awal = COALESCE(excluded.sta_awal, segmen_jalan.sta_awal),
+        sta_akhir = COALESCE(excluded.sta_akhir, segmen_jalan.sta_akhir),
+        longitude = COALESCE(excluded.longitude, segmen_jalan.longitude),
+        latitude = COALESCE(excluded.latitude, segmen_jalan.latitude)
+    `);
+    
+    const upsertAnnualKondisi = db.prepare(`
+        INSERT INTO annual_data (segmen_id, tahun, iri) 
+        VALUES (?, ?, ?) 
+        ON CONFLICT(segmen_id, tahun) DO UPDATE SET iri = excluded.iri
+    `);
+    const upsertAnnualTreatment = db.prepare(`
+        INSERT INTO annual_data (segmen_id, tahun, treatment) 
+        VALUES (?, ?, ?) 
+        ON CONFLICT(segmen_id, tahun) DO UPDATE SET treatment = excluded.treatment
+    `);
+    
+    const selectRuasId = db.prepare("SELECT id FROM ruas_jalan WHERE no_ruas = ?");
+    const selectSegId = db.prepare("SELECT id FROM segmen_jalan WHERE segment_id = ?");
 
-    // --- 1. FUNGSI HELPER & PEMETAAN KOLOM ---
-    const mapping = {
-      noRuas: ["no. ruas", "no ruas", "no_ruas"],
-      namaJalan: ["nama jalan", "nama ruas jalan", "nama_jalan"],
-      ppk: ["ppk", "nama ppk"],
-      staAwal: ["sta awal", "sta_awal"],
-      staAkhir: ["sta akhir", "sta_akhir"],
-      lon: ["lon", "longitude", "x", "bujur"],
-      lat: ["lat", "latitude", "y", "lintang"],
-      iri: ["iri", "nilai iri"],
-      treatment: ["treatment", "penanganan", "program"],
-      tahun: ["tahun", "tahun data"] 
-    };
-
-    // FUNGSI GETVAL YANG SUDAH DITINGKATKAN (KEBAL SPASI & KAPITALISASI)
     const getVal = (item: any, keys: string[]) => {
-      // Normalisasi semua nama kolom dari Excel (jadikan huruf kecil & hapus spasi ujung)
-      const normalizedItem: any = {};
-      for (const k in item) {
-        normalizedItem[k.trim().toLowerCase()] = item[k];
-      }
-      
-      // Pencarian data
-      for (const key of keys) {
-        const normalizedKey = key.trim().toLowerCase();
-        if (normalizedItem[normalizedKey] !== undefined && normalizedItem[normalizedKey] !== null && normalizedItem[normalizedKey] !== "") {
-          return normalizedItem[normalizedKey];
+      const itemKeys = Object.keys(item);
+      for (const k of keys) {
+        const matchingKey = itemKeys.find(ik => ik.trim().toLowerCase() === k.toLowerCase());
+        if (matchingKey && item[matchingKey] !== undefined && item[matchingKey] !== null && item[matchingKey] !== "") {
+          return item[matchingKey];
         }
       }
-      return null;
+      return undefined;
+    };
+
+    const mapping = {
+      noRuas: ["No. Ruas", "No Ruas", "no_ruas", "ruas_id", "ruas", "Ruas"],
+      namaJalan: ["Nama Jalan", "Nama Segmen", "Segmen", "nama_jalan", "Nama", "Jalan"],
+      ppk: ["PPK", "ppk", "Ppk"],
+      segmentId: ["ID Segmen", "ID", "Id", "id", "Segment ID", "segment_id", "SegmenID", "No. Segmen"],
+      staAwal: ["STA Awal", "STA_Awal", "sta_awal", "Awal", "STA", "sta"],
+      staAkhir: ["STA Akhir", "STA_Akhir", "sta_akhir", "Akhir"],
+      lat: ["Lat", "Latitude", "lat", "latitude", "Y", "y"],
+      lon: ["Lon", "Longitude", "lon", "longitude", "X", "x"],
+      tahun: ["Tahun", "tahun", "Year", "year", "Label", "label", "Periode", "Tahun Data"],
+      iri: ["IRI", "iri", "Iri", "Kondisi", "Nilai IRI"],
+      treatment: ["Treatment", "treatment", "Penanganan", "penanganan", "Jenis Penanganan", "Program", "Pekerjaan", "Rencana Penanganan", "Tipe Penanganan"]
     };
 
     const parseNum = (val: any) => {
-      if (!val) return 0;
-      const num = parseFloat(String(val).replace(/,/g, '.'));
-      return isNaN(num) ? 0 : num;
+      if (val === undefined || val === null || val === "") return NaN;
+      if (typeof val === "number") return val;
+      let str = String(val).trim();
+      if (str.includes('.') && str.includes(',')) {
+        if (str.indexOf('.') < str.indexOf(',')) str = str.replace(/\./g, "").replace(/,/g, ".");
+        else str = str.replace(/,/g, "");
+      } else if (str.includes(',')) {
+        const commaCount = (str.match(/,/g) || []).length;
+        if (commaCount > 1) str = str.replace(/,/g, "");
+        else str = str.replace(/,/g, ".");
+      } else if (str.includes('.')) {
+        const dotCount = (str.match(/\./g) || []).length;
+        if (dotCount > 1) str = str.replace(/\./g, "");
+      }
+      return parseFloat(str);
     };
 
-    const client = await pool.connect();
-    
-    try {
-      await client.query("BEGIN");
+    const cleanTahunLabel = (label: any) => {
+        let s = String(label || "").trim();
+        if (s.endsWith(".0")) s = s.slice(0, -2);
+        return s || "-";
+    };
 
-      // --- 2. KONSOLIDASI DATA (IN-MEMORY) ---
-      const ruasData = new Map(); 
-      const segmenData = new Map(); 
-      const annualData = new Map(); 
-
-      for (const item of data) {
-        const noRuas = String(getVal(item, mapping.noRuas) || "").trim();
-        const namaJalan = String(getVal(item, mapping.namaJalan) || "").trim();
-        const ppk = String(getVal(item, mapping.ppk) || "").trim();
+    const transaction = db.transaction((items) => {
+      let imported = 0;
+      for (const item of items) {
+        const noRuas = String(getVal(item, mapping.noRuas) || "");
+        const namaJalan = String(getVal(item, mapping.namaJalan) || "Tanpa Nama");
+        const ppk = String(getVal(item, mapping.ppk) || "");
+        const segmentId = String(getVal(item, mapping.segmentId) || "");
         
+        if (!noRuas || !segmentId) continue;
+
         const staAwal = parseNum(getVal(item, mapping.staAwal));
         const staAkhir = parseNum(getVal(item, mapping.staAkhir));
-        
         const lon = parseNum(getVal(item, mapping.lon));
         const lat = parseNum(getVal(item, mapping.lat));
+
+        insertRuas.run(noRuas, namaJalan, ppk);
+        const ruas = selectRuasId.get(noRuas) as any;
+        if (!ruas) continue;
         
-        const iri = parseNum(getVal(item, mapping.iri));
-        const treatment = String(getVal(item, mapping.treatment) || "NONE").trim();
+        insertSeg.run(segmentId, ruas.id, isNaN(staAwal) ? null : staAwal, isNaN(staAkhir) ? null : staAkhir, isNaN(lon) ? null : lon, isNaN(lat) ? null : lat);
+        const seg = selectSegId.get(segmentId) as any;
+        if (!seg) continue;
 
-        // UBAH BAGIAN INI: Sistem akan memprioritaskan pembacaan dari kolom Excel
-        const tahunExcel = String(getVal(item, mapping.tahun) || "").trim();
-        const tahun = tahunExcel || req.body.tahun || "2025"; 
+        // Smart multi-year parsing
+        const itemKeys = Object.keys(item);
+        const processedYears = new Set<string>();
 
-        const segmentId = `${noRuas}_${staAwal}_${staAkhir}`;
-
-        // === TAMBAHKAN BLOK PENDETEKSI BARIS RUSAK INI ===
-        if (!noRuas || noRuas === "" || segmentId === "_0_0") {
-           console.log(`[DITOLAK] Baris diabaikan! No Ruas: "${noRuas}", STA Awal: ${staAwal}, STA Akhir: ${staAkhir}`);
-           continue;
+        // 1. Explicit Tahun/Label Column
+        const explicitlySpecifiedYear = cleanTahunLabel(getVal(item, mapping.tahun));
+        if (explicitlySpecifiedYear !== "-") {
+            const iriVal = parseNum(getVal(item, mapping.iri));
+            const trtVal = getVal(item, mapping.treatment);
+            if (!isNaN(iriVal)) upsertAnnualKondisi.run(seg.id, explicitlySpecifiedYear, iriVal);
+            if (trtVal) upsertAnnualTreatment.run(seg.id, explicitlySpecifiedYear, String(trtVal).trim());
+            processedYears.add(explicitlySpecifiedYear);
         }
-        // =================================================
 
-        ruasData.set(noRuas, { namaJalan, ppk });
-        segmenData.set(segmentId, { noRuas, staAwal, staAkhir, lon, lat });
-        annualData.set(`${segmentId}_${tahun}`, { segmentId, tahun, iri, treatment });
+        // 2. Scan for year columns like "2025", "2025 S2", "IRI 2025", etc.
+        itemKeys.forEach(key => {
+            const cleanKey = key.trim();
+            // Match years like 2024, 2025, 2025 S2, 2025-S2, etc. (must start with 20)
+            const yearMatch = cleanKey.match(/^20\d{2}(\s?S[12]|[-\s]?S[12])?$/i);
+            const iriMatch = cleanKey.match(/^IRI\s?(20\d{2}.*)$/i);
+            const trtMatch = cleanKey.match(/^(Treatment|Penanganan)\s?(20\d{2}.*)$/i);
+
+            if (yearMatch) {
+                const yearLabel = cleanTahunLabel(yearMatch[0]);
+                const val = parseNum(item[key]);
+                if (!isNaN(val)) upsertAnnualKondisi.run(seg.id, yearLabel, val);
+            } else if (iriMatch) {
+                const yearLabel = cleanTahunLabel(iriMatch[1]);
+                const val = parseNum(item[key]);
+                if (!isNaN(val)) upsertAnnualKondisi.run(seg.id, yearLabel, val);
+            } else if (trtMatch) {
+                const yearLabel = cleanTahunLabel(trtMatch[2]);
+                const val = String(item[key]).trim();
+                if (val) upsertAnnualTreatment.run(seg.id, yearLabel, val);
+            }
+        });
+
+        imported++;
       }
+      return imported;
+    });
 
-      // --- 3. BULK UPSERT: RUAS JALAN ---
-      const ruasNoArr: string[] = [], ruasNamaArr: string[] = [], ruasPpkArr: string[] = [];
-      ruasData.forEach((val, key) => {
-        ruasNoArr.push(key); ruasNamaArr.push(val.namaJalan); ruasPpkArr.push(val.ppk);
-      });
-
-      if (ruasNoArr.length > 0) {
-        await client.query(`
-          INSERT INTO ruas_jalan (no_ruas, nama_jalan, ppk)
-          SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[]) AS t(no_ruas, nama_jalan, ppk)
-          ON CONFLICT(no_ruas) DO UPDATE SET
-            nama_jalan = COALESCE(EXCLUDED.nama_jalan, ruas_jalan.nama_jalan),
-            ppk = COALESCE(EXCLUDED.ppk, ruas_jalan.ppk)
-        `, [ruasNoArr, ruasNamaArr, ruasPpkArr]);
-      }
-
-      // --- 4. BULK UPSERT: SEGMEN JALAN ---
-      const segIdArr: string[] = [], segNoRuasArr: string[] = [], segStaAwalArr: number[] = [];
-      const segStaAkhirArr: number[] = [], segLonArr: number[] = [], segLatArr: number[] = [];
-      
-      segmenData.forEach((val, key) => {
-        segIdArr.push(key); segNoRuasArr.push(val.noRuas); 
-        segStaAwalArr.push(val.staAwal); segStaAkhirArr.push(val.staAkhir);
-        segLonArr.push(val.lon); segLatArr.push(val.lat);
-      });
-
-      if (segIdArr.length > 0) {
-        await client.query(`
-          INSERT INTO segmen_jalan (ruas_id, segment_id, sta_awal, sta_akhir, longitude, latitude)
-          SELECT r.id, t.segment_id, t.sta_awal, t.sta_akhir, t.longitude, t.latitude
-          FROM UNNEST($1::text[], $2::text[], $3::float8[], $4::float8[], $5::float8[], $6::float8[]) 
-            AS t(segment_id, no_ruas, sta_awal, sta_akhir, longitude, latitude)
-          JOIN ruas_jalan r ON r.no_ruas = t.no_ruas
-          ON CONFLICT(segment_id) DO UPDATE SET
-            sta_awal = EXCLUDED.sta_awal,
-            sta_akhir = EXCLUDED.sta_akhir,
-            longitude = EXCLUDED.longitude,
-            latitude = EXCLUDED.latitude
-        `, [segIdArr, segNoRuasArr, segStaAwalArr, segStaAkhirArr, segLonArr, segLatArr]);
-      }
-
-      // --- 5. BULK UPSERT: DATA TAHUNAN (KONDISI JALAN) ---
-      const annSegIdArr: string[] = [], annTahunArr: string[] = [], annIriArr: number[] = [], annTreatmentArr: string[] = [];
-      
-      annualData.forEach((val) => {
-        annSegIdArr.push(val.segmentId); annTahunArr.push(val.tahun);
-        annIriArr.push(val.iri); annTreatmentArr.push(val.treatment);
-      });
-
-      if (annSegIdArr.length > 0) {
-        await client.query(`
-          INSERT INTO annual_data (segmen_id, tahun, iri, treatment)
-          SELECT s.id, t.tahun, t.iri, t.treatment
-          FROM UNNEST($1::text[], $2::text[], $3::float8[], $4::text[]) 
-            AS t(segment_id, tahun, iri, treatment)
-          JOIN segmen_jalan s ON s.segment_id = t.segment_id
-          ON CONFLICT(segmen_id, tahun) DO UPDATE SET
-            iri = EXCLUDED.iri,
-            treatment = EXCLUDED.treatment
-        `, [annSegIdArr, annTahunArr, annIriArr, annTreatmentArr]);
-      }
-
-      // --- 6. PENYELESAIAN TRANSAKSI ---
-      await client.query("COMMIT");
-      res.json({ success: true, count: data.length });
-
-    } catch (error) {
-      await client.query("ROLLBACK");
-      console.error("Kesalahan Import Batch:", error);
-      res.status(500).json({ detail: "Gagal memproses data. Terdapat kesalahan pada eksekusi basis data." });
-    } finally {
-      client.release();
-    }
-  });
-
-  app.get("/api/ruas/all", async (req, res) => {
     try {
-      // 1. Eksekusi HANYA 3 Kueri untuk mengambil seluruh tabel secara agregat
-      const ruasPromise = pool.query("SELECT * FROM ruas_jalan");
-      const segmenPromise = pool.query("SELECT * FROM segmen_jalan ORDER BY ruas_id, sta_awal ASC");
-      const annualPromise = pool.query("SELECT * FROM annual_data");
-
-      // Menunggu ketiga kueri selesai secara paralel untuk efisiensi waktu maksimal
-      const [ruasRes, segmenRes, annualRes] = await Promise.all([ruasPromise, segmenPromise, annualPromise]);
-
-      const ruasRows = ruasRes.rows;
-      const segmenRows = segmenRes.rows;
-      const annualRows = annualRes.rows;
-
-      // 2. Perakitan Data Tahunan (Kondisi Jalan) di dalam Memori
-      const annualMap = new Map();
-      for (const a of annualRows) {
-        if (!annualMap.has(a.segmen_id)) {
-          annualMap.set(a.segmen_id, {});
-        }
-        // Membuat struktur: { "2024": { iri: 4, treatment: "Rutin" }, "2025": { ... } }
-        annualMap.get(a.segmen_id)[a.tahun] = { iri: a.iri, treatment: a.treatment };
-      }
-
-      // 3. Perakitan Data Segmen yang digabungkan dengan Data Tahunan
-      const segmenMap = new Map();
-      for (const s of segmenRows) {
-        if (!segmenMap.has(s.ruas_id)) {
-          segmenMap.set(s.ruas_id, []);
-        }
-        const yearsData = annualMap.get(s.id) || {};
-        // Menggabungkan properti segmen dengan metrik tahunannya
-        segmenMap.get(s.ruas_id).push({ ...s, ...yearsData });
-      }
-
-      // 4. Penggabungan Final ke Data Ruas Jalan
-      const result = ruasRows.map((r) => ({
-        ...r,
-        segments: segmenMap.get(r.id) || []
-      }));
-
-      res.json(result);
-
+      const count = transaction(data);
+      res.json({ success: true, count });
     } catch (error) {
-      console.error("Kesalahan Pembuatan Data Ruas:", error);
-      res.status(500).json({ detail: "Gagal memuat struktur data ruas jalan." });
+      console.error("Import Error:", error);
+      res.status(500).json({ detail: "Gagal menyimpan data ke database. Periksa format file Anda." });
     }
   });
 
-  app.get("/api/segmen/search", async (req, res) => {
+  app.get("/api/ruas/all", (req, res) => {
+    const ruas = db.prepare("SELECT * FROM ruas_jalan").all();
+    const result = ruas.map((r: any) => {
+      const segments = db.prepare("SELECT * FROM segmen_jalan WHERE ruas_id = ? ORDER BY sta_awal ASC").all(r.id);
+      return {
+        ...r,
+        segments: segments.map((s: any) => {
+          const annuals = db.prepare("SELECT tahun, iri, treatment FROM annual_data WHERE segmen_id = ?").all(s.id);
+          const yearsData: any = {};
+          annuals.forEach((a: any) => {
+            yearsData[a.tahun] = { iri: a.iri, treatment: a.treatment };
+          });
+          return { ...s, ...yearsData };
+        })
+      };
+    });
+    res.json(result);
+  });
+
+  app.get("/api/segmen/search", (req, res) => {
     const { query } = req.query;
     if (!query) return res.json([]);
     
-    const pattern = `%${query}%`;
-    const { rows } = await pool.query(`
+    const results = db.prepare(`
       SELECT s.*, r.no_ruas, r.nama_jalan, r.ppk 
       FROM segmen_jalan s 
       JOIN ruas_jalan r ON r.id = s.ruas_id 
-      WHERE s.segment_id ILIKE $1 OR r.no_ruas ILIKE $2 OR r.nama_jalan ILIKE $3
+      WHERE s.segment_id LIKE ? OR r.no_ruas LIKE ? OR r.nama_jalan LIKE ?
       LIMIT 10
-    `, [pattern, pattern, pattern]);
+    `).all(`%${query}%`, `%${query}%`, `%${query}%`);
     
-    res.json(rows);
+    res.json(results);
   });
 
-  app.post("/api/segmen/update-manual", async (req, res) => {
+  app.post("/api/segmen/update-manual", (req, res) => {
     const { 
       id, no_ruas, nama_jalan, ppk, segment_id, 
       sta_awal, sta_akhir, longitude, latitude, iri_value, treatment, tahun 
     } = req.body;
 
-    const client = await pool.connect();
     try {
-      await client.query("BEGIN");
+      db.transaction(() => {
+        // Update Road Info
+        db.prepare("UPDATE ruas_jalan SET no_ruas = ?, nama_jalan = ?, ppk = ? WHERE no_ruas = ?")
+          .run(no_ruas, nama_jalan, ppk, no_ruas);
 
-      // Update Road Info
-      await client.query(
-        "UPDATE ruas_jalan SET no_ruas = $1, nama_jalan = $2, ppk = $3 WHERE no_ruas = $4",
-        [no_ruas, nama_jalan, ppk, no_ruas]
-      );
+        // Update Segment Info
+        db.prepare(`
+          UPDATE segmen_jalan SET 
+            segment_id = ?, sta_awal = ?, sta_akhir = ?, 
+            longitude = ?, latitude = ?
+          WHERE id = ?
+        `).run(segment_id, sta_awal, sta_akhir, longitude, latitude, id);
 
-      // Update Segment Info
-      await client.query(`
-        UPDATE segmen_jalan SET 
-          segment_id = $1, sta_awal = $2, sta_akhir = $3, 
-          longitude = $4, latitude = $5
-        WHERE id = $6
-      `, [segment_id, sta_awal, sta_akhir, longitude, latitude, id]);
-
-      // Update or Insert Annual Data
-      if (tahun) {
-        const cleanTahun = String(tahun);
-        if (iri_value !== undefined && treatment !== undefined) {
-          await client.query(`
-            INSERT INTO annual_data (segmen_id, tahun, iri, treatment)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT(segmen_id, tahun) DO UPDATE SET iri = EXCLUDED.iri, treatment = EXCLUDED.treatment
-          `, [id, cleanTahun, parseFloat(iri_value), treatment]);
-        } else if (iri_value !== undefined) {
-          await client.query(`
-            INSERT INTO annual_data (segmen_id, tahun, iri)
-            VALUES ($1, $2, $3)
-            ON CONFLICT(segmen_id, tahun) DO UPDATE SET iri = EXCLUDED.iri
-          `, [id, cleanTahun, parseFloat(iri_value)]);
-        } else if (treatment !== undefined) {
-          await client.query(`
-            INSERT INTO annual_data (segmen_id, tahun, treatment)
-            VALUES ($1, $2, $3)
-            ON CONFLICT(segmen_id, tahun) DO UPDATE SET treatment = EXCLUDED.treatment
-          `, [id, cleanTahun, treatment]);
+        // Update or Insert Annual Data
+        if (tahun) {
+          const cleanTahun = String(tahun);
+          if (iri_value !== undefined && treatment !== undefined) {
+             db.prepare(`
+                INSERT INTO annual_data (segmen_id, tahun, iri, treatment)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(segmen_id, tahun) DO UPDATE SET iri = excluded.iri, treatment = excluded.treatment
+              `).run(id, cleanTahun, parseFloat(iri_value), treatment);
+          } else if (iri_value !== undefined) {
+            db.prepare(`
+              INSERT INTO annual_data (segmen_id, tahun, iri)
+              VALUES (?, ?, ?)
+              ON CONFLICT(segmen_id, tahun) DO UPDATE SET iri = excluded.iri
+            `).run(id, cleanTahun, parseFloat(iri_value));
+          } else if (treatment !== undefined) {
+            db.prepare(`
+              INSERT INTO annual_data (segmen_id, tahun, treatment)
+              VALUES (?, ?, ?)
+              ON CONFLICT(segmen_id, tahun) DO UPDATE SET treatment = excluded.treatment
+            `).run(id, cleanTahun, treatment);
+          }
         }
-      }
-
-      await client.query("COMMIT");
+      })();
       res.json({ success: true });
     } catch (error) {
-      await client.query("ROLLBACK");
       console.error(error);
       res.status(500).json({ detail: "Gagal memperbarui database" });
-    } finally {
-      client.release();
     }
   });
 
-  app.post("/api/segmen/delete-multiple", async (req, res) => {
+  app.post("/api/segmen/delete-multiple", (req, res) => {
     const { ids } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ detail: "ID tidak valid" });
     }
 
-    const client = await pool.connect();
     try {
-      await client.query("BEGIN");
-      
-      for (const id of ids) {
-        await client.query("DELETE FROM annual_data WHERE segmen_id = $1", [id]);
-        await client.query("DELETE FROM segmen_jalan WHERE id = $1", [id]);
-      }
-
-      await client.query("COMMIT");
+      db.transaction(() => {
+        const deleteAnnual = db.prepare("DELETE FROM annual_data WHERE segmen_id = ?");
+        const deleteSeg = db.prepare("DELETE FROM segmen_jalan WHERE id = ?");
+        
+        for (const id of ids) {
+          deleteAnnual.run(id);
+          deleteSeg.run(id);
+        }
+      })();
       res.json({ success: true, count: ids.length });
     } catch (error) {
-      await client.query("ROLLBACK");
       console.error(error);
       res.status(500).json({ detail: "Gagal menghapus data" });
-    } finally {
-      client.release();
     }
   });
 
-  app.post("/api/admin/clear-database", async (req, res) => {
+  app.post("/api/admin/clear-database", (req, res) => {
     const { year } = req.body;
-    const client = await pool.connect();
     try {
-      await client.query("BEGIN");
-      if (year) {
-        await client.query("DELETE FROM annual_data WHERE tahun = $1", [String(year)]);
-      } else {
-        await client.query("DELETE FROM annual_data");
-        await client.query("DELETE FROM segmen_jalan");
-        await client.query("DELETE FROM ruas_jalan");
-      }
-      await client.query("COMMIT");
+      db.transaction(() => {
+        if (year) {
+          db.prepare("DELETE FROM annual_data WHERE tahun = ?").run(String(year));
+        } else {
+          db.prepare("DELETE FROM annual_data").run();
+          db.prepare("DELETE FROM segmen_jalan").run();
+          db.prepare("DELETE FROM ruas_jalan").run();
+        }
+      })();
       res.json({ success: true, message: year ? `Data tahun ${year} berhasil dihapus` : "Database berhasil dikosongkan" });
     } catch (error) {
-      await client.query("ROLLBACK");
       console.error(error);
       res.status(500).json({ detail: "Gagal membersihkan database" });
-    } finally {
-      client.release();
     }
   });
 

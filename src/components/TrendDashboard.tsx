@@ -72,12 +72,6 @@ export const TrendDashboard = ({ ruasData, availableYears }: { ruasData: any[], 
   const [filterTreatment, setFilterTreatment] = useState<string>('all');
   const [showPrediksi, setShowPrediksi] = useState(true);
   const [showThreshold, setShowThreshold] = useState(true);
-  const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 50;
-
-  React.useEffect(() => {
-    setCurrentPage(1);
-  }, [filterRuas, filterSegmen, filterTren, filterKondisi, filterTreatment]);
 
   // Parse data
   const segmentsStats = useMemo(() => {
@@ -300,24 +294,24 @@ export const TrendDashboard = ({ ruasData, availableYears }: { ruasData: any[], 
       return [
         idx + 1,
         s.alert ? 'Waspada' : 'Aman',
-        s.nama_jalan,
+        s.ruas_id,
         s.segment_id,
         s.sta,
-        s.lastIri.toFixed(2).replace('.', ','),
+        s.lastIri.toFixed(2),
         s.kondisi,
-        s.deltaIri.toFixed(2).replace('.', ','),
+        s.deltaIri.toFixed(2),
         s.tren,
         s.lastTreatmentInfo ? s.lastTreatmentInfo.type : '-',
         s.lastTreatmentInfo ? s.lastTreatmentInfo.age : '-',
         s.lastTreatmentInfo ? s.lastTreatmentInfo.efektivitas : '-',
         s.rekomendasi,
         s.note || '-',
-        s.prediksi3.toFixed(2).replace('.', ','),
-        s.skorPrioritas.toFixed(2).replace('.', ',')
-      ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(';');
+        s.prediksi3.toFixed(2),
+        s.skorPrioritas.toFixed(2)
+      ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',');
     });
 
-    const csvContent = "\uFEFF" + [headers.join(';'), ...rows].join('\n');
+    const csvContent = [headers.join(','), ...rows].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -540,32 +534,7 @@ export const TrendDashboard = ({ ruasData, availableYears }: { ruasData: any[], 
           </div>
           
           <div className="overflow-x-auto max-h-[500px]">
-            
-          {/* Pagination Controls Top */}
-          <div className="px-4 py-2 bg-white flex items-center justify-between border-b border-slate-200 text-sm">
-            <span className="text-slate-500 font-bold">
-              Menampilkan {(currentPage - 1) * ITEMS_PER_PAGE + 1} - {Math.min(currentPage * ITEMS_PER_PAGE, filteredSegments.length)} dari {filteredSegments.length} segmen
-            </span>
-            <div className="flex items-center gap-2">
-              <button 
-                disabled={currentPage === 1}
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                className="px-3 py-1 border border-slate-300 rounded font-bold text-slate-600 disabled:opacity-50 hover:bg-slate-50"
-              >
-                Prev
-              </button>
-              <span className="font-bold text-[#003B7A] px-2">{currentPage} / {Math.ceil(filteredSegments.length / ITEMS_PER_PAGE) || 1}</span>
-              <button 
-                disabled={currentPage >= Math.ceil(filteredSegments.length / ITEMS_PER_PAGE)}
-                onClick={() => setCurrentPage(p => p + 1)}
-                className="px-3 py-1 border border-slate-300 rounded font-bold text-slate-600 disabled:opacity-50 hover:bg-slate-50"
-              >
-                Next
-              </button>
-            </div>
-          </div>
-          
-          <table className="w-full text-left text-xs whitespace-nowrap">
+            <table className="w-full text-left text-xs whitespace-nowrap">
               <thead className="bg-slate-100 sticky top-0 border-b z-10">
                 <tr>
                   <th className="p-3 font-bold text-slate-500 uppercase">Alert</th>
@@ -581,7 +550,7 @@ export const TrendDashboard = ({ ruasData, availableYears }: { ruasData: any[], 
                 </tr>
               </thead>
               <tbody>
-                {filteredSegments.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE).map((s, i) => {
+                {filteredSegments.map((s, i) => {
                   let alertBadge = null;
                   if (s.alert === 'Merah') {
                     alertBadge = <span className="bg-red-100 text-red-700 font-bold px-2 py-0.5 rounded flex items-center gap-1 border border-red-200"><div className="w-2 h-2 rounded-full bg-red-600 animate-pulse"></div> Kritis</span>;
@@ -615,15 +584,15 @@ export const TrendDashboard = ({ ruasData, availableYears }: { ruasData: any[], 
                       <td className="p-3 font-black text-blue-900">{s.segment_id} <br/><span className="font-normal text-slate-500 text-[10px]">{s.sta}</span></td>
                       
                       <td className="p-3 text-center border-l bg-blue-50/30 font-black text-blue-700">
-                        +{s.deltaIri.toFixed(2).replace('.', ',')}
+                        +{s.deltaIri.toFixed(2)}
                       </td>
                       <td className="p-3 text-center bg-blue-50/30">
                         <div className="flex flex-col gap-1 items-center">
-                          <span className="px-3 py-0.5 rounded font-bold text-white shadow-sm w-full min-w-fit whitespace-nowrap" style={{backgroundColor: (TREN_COLORS as any)[s.tren]}}>
+                          <span className="px-2 py-0.5 rounded font-bold text-white shadow-sm w-32" style={{backgroundColor: (TREN_COLORS as any)[s.tren]}}>
                             {s.tren}
                           </span>
-                          <span className="px-3 py-0.5 rounded font-bold text-white shadow-sm w-full min-w-fit whitespace-nowrap" style={{backgroundColor: (KONDISI_COLORS as any)[s.kondisi]}}>
-                            {s.kondisi} ({s.lastIri.toFixed(2).replace('.', ',')})
+                          <span className="px-2 py-0.5 rounded font-bold text-white shadow-sm w-24" style={{backgroundColor: (KONDISI_COLORS as any)[s.kondisi]}}>
+                            {s.kondisi} ({s.lastIri.toFixed(2)})
                           </span>
                         </div>
                       </td>
@@ -638,7 +607,7 @@ export const TrendDashboard = ({ ruasData, availableYears }: { ruasData: any[], 
                         </div>
                       </td>
 
-                      <td className="p-3 text-center border-l bg-orange-50/30 font-bold text-orange-800">{s.prediksi3.toFixed(2).replace('.', ',')}</td>
+                      <td className="p-3 text-center border-l bg-orange-50/30 font-bold text-orange-800">{s.prediksi3.toFixed(2)}</td>
                       
                       <td className="p-3 text-center border-l">
                         <div className="font-black text-lg bg-slate-100 w-12 h-12 flex flex-col items-center justify-center rounded-lg mx-auto shadow-sm border border-slate-200">
