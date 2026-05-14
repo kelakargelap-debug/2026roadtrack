@@ -225,6 +225,7 @@ async function startServer() {
 
     const transaction = db.transaction((items) => {
       let imported = 0;
+      let missingKeys = new Set<string>();
       
       if (items.length > 0) {
         console.log("[IMPORT] Headers detected:", Object.keys(items[0]));
@@ -253,10 +254,16 @@ async function startServer() {
           else if (pengelola.includes("provinsi")) kabupatenKota = "provinsi maluku";
         }
 
-        const noRuas = String(getVal(item, mapping.noRuas) || "");
+        const noRuasVal = getVal(item, mapping.noRuas);
+        const segmentIdVal = getVal(item, mapping.segmentId);
+        
+        if (!noRuasVal) missingKeys.add("No Ruas");
+        if (!segmentIdVal) missingKeys.add("ID Segmen");
+
+        const noRuas = String(noRuasVal || "");
+        const segmentId = String(segmentIdVal || "");
         const namaJalan = String(getVal(item, mapping.namaJalan) || "Tanpa Nama");
         const ppk = String(getVal(item, mapping.ppk) || "");
-        const segmentId = String(getVal(item, mapping.segmentId) || "");
         
         if (!noRuas || !segmentId) continue;
 
@@ -322,6 +329,11 @@ async function startServer() {
 
         imported++;
       }
+      
+      if (imported === 0 && items.length > 0 && missingKeys.size > 0) {
+        throw new Error("Gagal membaca baris. Pastikan ada kolom yang bernama persis seperti: " + Array.from(missingKeys).join(", ") + ". (Cek spasi atau karakter tersembunyi di header Anda)");
+      }
+      
       return imported;
     });
 
@@ -335,9 +347,9 @@ async function startServer() {
       console.log(`[IMPORT OK] Imported: ${count} rows. DB now has: ${verifyRuas.count} ruas, ${verifySegmen.count} segmen, ${verifyAnnual.count} annual_data`);
       
       res.json({ success: true, count, db_counts: { ruas: verifyRuas.count, segmen: verifySegmen.count, annual: verifyAnnual.count } });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Import Error:", error);
-      res.status(500).json({ detail: "Gagal menyimpan data ke database. Periksa format file Anda." });
+      res.status(500).json({ detail: error.message || "Gagal menyimpan data ke database. Periksa format file Anda." });
     }
   });
 
