@@ -455,7 +455,29 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
         const wb = XLSX.read(dataBuffer, { type: 'buffer' });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
-        const data = XLSX.utils.sheet_to_json(ws);
+        let data = XLSX.utils.sheet_to_json(ws);
+
+        // Smart CSV Semicolon Detection & Parsing
+        if (data.length > 0) {
+          const firstRowKeys = Object.keys(data[0] as object);
+          // If the parser read it as a single column with semicolons
+          if (firstRowKeys.length === 1 && firstRowKeys[0].includes(';')) {
+            const rawCsv = XLSX.utils.sheet_to_csv(ws);
+            const lines = rawCsv.split('\n');
+            const headers = lines[0].split(';').map(h => h.trim());
+            const parsedData = [];
+            for (let i = 1; i < lines.length; i++) {
+              if (!lines[i].trim()) continue;
+              const values = lines[i].split(';');
+              const rowObj: any = {};
+              headers.forEach((h, idx) => {
+                rowObj[h] = values[idx] !== undefined ? values[idx].trim() : '';
+              });
+              parsedData.push(rowObj);
+            }
+            data = parsedData;
+          }
+        }
 
         if (!Array.isArray(data) || data.length === 0) {
           throw new Error("File Excel kosong atau tidak terbaca.");
@@ -477,7 +499,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
           setIsUploadModalOpen(false);
           setUploadProgress(null);
           const dbC = res.data.db_counts || {};
-          alert(`Berhasil mengunggah ${res.data.count} baris data!\n\nVerifikasi DB:\n- Ruas: ${dbC.ruas || 0}\n- Segmen: ${dbC.segmen || 0}\n- Data Tahunan: ${dbC.annual || 0}`);
+          alert(`Berhasil mengunggah ${res.data.count} baris data!\n\nVerifikasi Database Utama:\n- Total Master Ruas: ${dbC.ruas || 0}\n- Total Segmen: ${dbC.segmen || 0}\n- Record Kondisi Tahunan: ${dbC.annual || 0} baris`);
           fetchData();
         }, 800);
       } catch (error: any) {
@@ -1854,11 +1876,8 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                     <Info size={12} /> Format Kolom yang Dibutuhkan
                   </h4>
                   <p className="text-[10px] text-slate-600 leading-relaxed font-medium">
-                    Kolom Wajib: <code className="bg-slate-200 px-1 rounded text-[#003B7A]">Pengelola</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">No. Ruas</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">Nama Jalan</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">PPK</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">ID Segmen</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">STA Awal</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">STA Akhir</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">Lon</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">Lat</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">Tahun</code>.
-                    <br />
-                    Data Kondisi: <code className="bg-slate-200 px-1 rounded text-[#003B7A]">IRI</code> (Nasional) atau <code className="bg-slate-200 px-1 rounded text-[#003B7A]">SDI</code> (Daerah).
-                    <br />
-                    Penanganan: <code className="bg-slate-200 px-1 rounded text-[#003B7A]">Treatment</code> (opsional).
+                    Kolom Wajib (Berdasarkan urutan/nama Excel Anda): <br />
+                    <code className="bg-slate-200 px-1 rounded text-[#003B7A]">Pengelola</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">wilayah</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">No Ruas</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">Nama Jalan</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">PPK</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">ID Segmen</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">STA Awal</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">STA Akhir</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">Lon</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">Lat</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">IRI</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">SDI</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">Treatment</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">Tahun</code>.
                   </p>
                 </div>
 

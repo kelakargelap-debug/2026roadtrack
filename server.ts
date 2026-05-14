@@ -183,8 +183,8 @@ async function startServer() {
 
     const mapping = {
       pengelola: ["Pengelola", "pengelola", "Pengelola (nasional/Provinsi/ Kabupaten kota)"],
-      kabupatenKota: ["Kabupaten/Kota", "Kabupaten", "Kota", "kabupaten_kota", "Wilayah"],
-      noRuas: ["No. Ruas", "No Ruas", "no_ruas", "ruas_id", "ruas", "Ruas"],
+      kabupatenKota: ["wilayah", "Kabupaten/Kota", "Kabupaten", "Kota", "kabupaten_kota", "Wilayah"],
+      noRuas: ["No Ruas", "No. Ruas", "no_ruas", "ruas_id", "ruas", "Ruas"],
       namaJalan: ["Nama Jalan", "Nama Segmen", "Segmen", "nama_jalan", "Nama", "Jalan"],
       ppk: ["PPK", "ppk", "Ppk"],
       segmentId: ["ID Segmen", "ID", "Id", "id", "Segment ID", "segment_id", "SegmenID", "No. Segmen"],
@@ -469,10 +469,9 @@ async function startServer() {
             String(pengelola).toLowerCase(), String(pengelola).toLowerCase()
           );
         }
-      } else {
-        // No filter = return empty to prevent browser crash
-        return res.json([]);
-      }
+        } else {
+          ruas = db.prepare("SELECT * FROM ruas_jalan").all();
+        }
 
       console.log(`[FETCH] /api/ruas/all?pengelola=${pengelola} => ruas: ${ruas.length}`);
       
