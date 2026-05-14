@@ -30,10 +30,20 @@ const getSdiCategory = (sdi: number | string | undefined | null) => {
 
   const val = parseFloat(s);
   if (isNaN(val) || val < 0) return 'Tidak Ada Data';
-  if (val < 50) return 'Baik';
-  if (val < 100) return 'Sedang';
-  if (val < 150) return 'Rusak Ringan';
+  if (val <= 50) return 'Baik';
+  if (val <= 100) return 'Sedang';
+  if (val <= 150) return 'Rusak Ringan';
   return 'Rusak Berat';
+};
+
+const parseNumericSdi = (sdi: any): number => {
+  if (sdi === undefined || sdi === null || sdi === "") return NaN;
+  const s = String(sdi).toUpperCase().trim();
+  if (s === 'B' || s === 'BAIK') return 25;
+  if (s === 'S' || s === 'SEDANG') return 75;
+  if (s === 'RR' || s === 'RUSAK RINGAN') return 125;
+  if (s === 'RB' || s === 'RUSAK BERAT') return 175;
+  return parseFloat(s);
 };
 
 export const AnalyticsDashboard = ({ 
@@ -303,7 +313,7 @@ export const AnalyticsDashboard = ({
       ruas.segments.forEach((seg: any) => {
         const yearData = seg[selectedYear];
         if (yearData && yearData.sdi !== undefined) {
-          const val = parseFloat(yearData.sdi);
+          const val = parseNumericSdi(yearData.sdi);
           if (!isNaN(val)) {
             totalSdi += val;
             count++;
@@ -326,7 +336,7 @@ export const AnalyticsDashboard = ({
         let yCount = 0;
         ruas.segments.forEach((seg: any) => {
           if (seg[y] && seg[y].sdi !== undefined) {
-            const val = parseFloat(seg[y].sdi);
+            const val = parseNumericSdi(seg[y].sdi);
             if (!isNaN(val)) {
               yTotal += val;
               yCount++;
@@ -340,7 +350,7 @@ export const AnalyticsDashboard = ({
         id: ruas.no_ruas || ruas.id,
         nama: ruas.nama_jalan || ruas.nama || 'Tanpa Nama',
         avgSdi: parseFloat(avgSdi.toFixed(2)),
-        condition: avgSdi < 50 ? 'Baik' : avgSdi < 100 ? 'Sedang' : avgSdi < 150 ? 'Rusak Ringan' : 'Rusak Berat',
+        condition: avgSdi <= 50 ? 'Baik' : avgSdi <= 100 ? 'Sedang' : avgSdi <= 150 ? 'Rusak Ringan' : 'Rusak Berat',
         treatments: treatments.sort((a, b) => b.year.localeCompare(a.year)),
         history: history.sort((a, b) => a.year.localeCompare(b.year))
       };
@@ -879,14 +889,14 @@ export const AnalyticsDashboard = ({
                             </div>
                             <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                               <div 
-                                className={`h-full rounded-full transition-all duration-500 ${r.avgSdi < 50 ? 'bg-emerald-500' : r.avgSdi < 100 ? 'bg-amber-400' : r.avgSdi < 150 ? 'bg-orange-500' : 'bg-red-600'}`}
+                                className={`h-full rounded-full transition-all duration-500 ${r.avgSdi <= 50 ? 'bg-emerald-500' : r.avgSdi <= 100 ? 'bg-amber-400' : r.avgSdi <= 150 ? 'bg-orange-500' : 'bg-red-600'}`}
                                 style={{ width: `${Math.min((r.avgSdi / 400) * 100, 100)}%` }}
                               />
                             </div>
                           </div>
                         </td>
                         <td className="p-3">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-black text-white shadow-sm ${r.avgSdi < 50 ? 'bg-emerald-500' : r.avgSdi < 100 ? 'bg-amber-400' : r.avgSdi < 150 ? 'bg-orange-500' : 'bg-red-600'}`}>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-black text-white shadow-sm ${r.avgSdi <= 50 ? 'bg-emerald-500' : r.avgSdi <= 100 ? 'bg-amber-400' : r.avgSdi <= 150 ? 'bg-orange-500' : 'bg-red-600'}`}>
                             {r.condition}
                           </span>
                         </td>

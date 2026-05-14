@@ -234,8 +234,24 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
   const [treFilterTreatment, setTreFilterTreatment] = useState('all');
   // State for on-demand loaded ruas detail (with segments)
   const [selectedRuasDetail, setSelectedRuasDetail] = useState<any>(null);
-  // State for filtered ruas data (used by Analytics/Trend - loaded by pengelola filter)
-  const [filteredRuasData, setFilteredRuasData] = useState<any[]>([]);
+  
+  // Cache of ALL ruas with segments — loaded once on mount
+  const [allRuasWithSegments, setAllRuasWithSegments] = useState<any[]>([]);
+
+  // Client-side filtered data — instant, no API call on filter change
+  const filteredRuasData = useMemo(() => {
+    if (!filterPengelola || !allRuasWithSegments.length) return [];
+
+    return allRuasWithSegments.filter(r => {
+      const p = String(r.pengelola || 'nasional').toLowerCase();
+      const k = String(r.kabupaten_kota || '').toLowerCase();
+
+      if (filterPengelola === 'nasional') return p === 'nasional';
+      if (filterPengelola === 'daerah') return p !== 'nasional';
+      // Specific region filter
+      return p === filterPengelola || k === filterPengelola;
+    });
+  }, [allRuasWithSegments, filterPengelola]);
 
   // --- CENTRAL HIERARCHY VALIDATION (memoized) ---
   const isFilterHierarchyValid = useMemo(() => {
@@ -374,9 +390,17 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
   const fetchData = React.useCallback(async () => {
     try {
-      const res = await axios.get('/api/ruas/list');
-      const { ruas, availableYears: years } = res.data;
+      setIsDataLoading(true);
+
+      // Fetch lightweight list (for sidebar) + full data (for map/analytics) in parallel
+      const [listRes, allRes] = await Promise.all([
+        axios.get('/api/ruas/list'),
+        axios.get('/api/ruas/all')  // No filter = get ALL data at once
+      ]);
+
+      const { ruas, availableYears: years } = listRes.data;
       setRuasData(ruas);
+      setAllRuasWithSegments(allRes.data);
 
       if (years && years.length > 0) {
         const sortedYears = [...years].sort((a: string, b: string) =>
@@ -390,6 +414,8 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
       }
     } catch (err) {
       console.error("Gagal mengambil data ruas:", err);
+    } finally {
+      setIsDataLoading(false);
     }
   }, []);
 
@@ -413,31 +439,6 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
   }, [selectedRuasId, fetchRuasDetail]);
 
   const [isDataLoading, setIsDataLoading] = useState(false);
-
-  // Fetch filtered ruas data (with segments) when pengelola filter changes - for Analytics/Trend/Map Region
-  useEffect(() => {
-    const isHierarchyValid = 
-      (filterPengelola === 'nasional' && year) || 
-      (filterPengelola && filterPengelola !== 'daerah' && filterPengelola !== 'nasional' && year);
-
-    if (isHierarchyValid && (mainView === 'analytics' || mainView === 'trend' || mainView === 'map')) {
-      setIsDataLoading(true);
-      
-      // Yield to main thread so UI doesn't freeze on dropdown click
-      setTimeout(() => {
-        axios.get('/api/ruas/all', { params: { pengelola: filterPengelola } })
-          .then(res => setFilteredRuasData(res.data))
-          .catch(err => {
-            console.error("Gagal mengambil data terfilter:", err);
-            setFilteredRuasData([]);
-          })
-          .finally(() => setIsDataLoading(false));
-      }, 50);
-    } else {
-      setFilteredRuasData([]);
-      setIsDataLoading(false);
-    }
-  }, [filterPengelola, year, mainView]);
 
   useEffect(() => {
     fetchData();
@@ -889,6 +890,19 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
   }, []);
 
   const [isMapLoading, setIsMapLoading] = useState(false);
+  const [mapRenderCapped, setMapRenderCapped] = useState(false);
+  const renderTimerRef = useRef<any>(null);
+  const renderAbortRef = useRef(false);
+
+  // --- OPTIMIZED HELPER: Parse & auto-swap coords in one pass ---
+  const parseCoord = (seg: any): [number, number] | null => {
+    let lat = parseFloat(seg.latitude || seg.lat1 || seg.lat);
+    let lon = parseFloat(seg.longitude || seg.lon1 || seg.lon);
+    if (isNaN(lat) || isNaN(lon) || lat === 0 || lon === 0) return null;
+    // Auto-swap if user put longitude in latitude column (Indonesia lat is small, lon is large)
+    if (Math.abs(lat) > Math.abs(lon)) { const t = lat; lat = lon; lon = t; }
+    return [lat, lon];
+  };
 
   // Initialize Map
   useEffect(() => {
@@ -917,29 +931,48 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
     };
   }, [isLeafletLoaded]);
 
-  // Optimized Render: Only render the SELECTED ruas from on-demand loaded detail
+  // Optimized Render with debounce + chunking + pre-computed coords
   useEffect(() => {
     if (!mapRef.current || !isLeafletLoaded) return;
 
-    const renderMap = async () => {
+    // Debounce: cancel previous pending render
+    if (renderTimerRef.current) {
+      clearTimeout(renderTimerRef.current);
+    }
+    renderAbortRef.current = true; // Signal any in-progress chunked render to stop
+
+    renderTimerRef.current = setTimeout(() => {
+      renderAbortRef.current = false;
+      renderMapOptimized();
+    }, 300);
+
+    return () => {
+      if (renderTimerRef.current) clearTimeout(renderTimerRef.current);
+      renderAbortRef.current = true;
+    };
+
+    async function renderMapOptimized() {
       setIsMapLoading(true);
+      setMapRenderCapped(false);
       await new Promise(resolve => setTimeout(resolve, 0));
 
       try {
         const L = (window as any).L;
-        if (!L) return;
+        if (!L || renderAbortRef.current) return;
 
         // Clear old layers
         if (mapLayersRef.current) {
           mapRef.current.removeLayer(mapLayersRef.current);
+          mapLayersRef.current = null;
         }
 
         // Prepare ruas to render
         let ruasToRender: any[] = [];
-        if (selectedRuasDetail && Array.isArray(selectedRuasDetail.segments) && selectedRuasDetail.segments.length > 0) {
+        const isDetailView = !!(selectedRuasDetail && Array.isArray(selectedRuasDetail.segments) && selectedRuasDetail.segments.length > 0);
+        
+        if (isDetailView) {
           ruasToRender = [selectedRuasDetail];
         } else if (filterPengelola && Array.isArray(filteredRuasData) && filteredRuasData.length > 0) {
-          // If no specific ruas is selected, render all ruas from the filtered region
           ruasToRender = filteredRuasData.filter(r => Array.isArray(r.segments) && r.segments.length > 0);
         }
 
@@ -948,110 +981,145 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
           return;
         }
 
-        const polylines: any[] = [];
-        const allPoints: any[] = [];
+        // --- PHASE 1: Pre-compute all segment data in one O(n) pass ---
+        const MAX_POLYLINES = isDetailView ? 50000 : 3000; // Limit in overview mode
+        
+        type SegRenderItem = {
+          from: [number, number];
+          to: [number, number];
+          color: string;
+          seg: any;
+          yearData: any;
+          ruasNamaJalan: string;
+          ruasNoRuas: string;
+          isNasional: boolean;
+        };
+        
+        const renderItems: SegRenderItem[] = [];
+        const allPoints: [number, number][] = [];
+        let totalSegCount = 0;
+        let capped = false;
 
-        ruasToRender.forEach(ruas => {
+        for (const ruas of ruasToRender) {
+          if (renderAbortRef.current) return;
+          
           const pengelola = String(ruas.pengelola || 'nasional').toLowerCase();
           const isNasional = pengelola === 'nasional';
+          const roadName = ruas.nama_jalan === 'Tanpa Nama' ? (ruas.no_ruas || 'Tanpa Nama') : (ruas.nama_jalan || ruas.no_ruas || 'Tanpa Nama');
 
-          const getTooltipContent = (seg: any, yearData: any) => {
-            const conditionLabel = isNasional ? 'IRI' : 'SDI';
-            const conditionValRaw = isNasional ? (yearData.iri || 0) : (yearData.sdi || 0);
-            const conditionValDisplay = (typeof conditionValRaw === 'number' && !isNaN(conditionValRaw) && conditionValRaw > 0)
-              ? conditionValDisplayFix(conditionValRaw, isNasional)
-              : String(conditionValRaw || '-');
-            const kat = isNasional ? getIriCategory(yearData.iri) : getSdiCategory(yearData.sdi);
-            const colorObj = isNasional ? (IRI_COLORS as any)[kat] : (SDI_COLORS as any)[kat];
-            const roadName = ruas.nama_jalan === 'Tanpa Nama' ? (ruas.no_ruas || 'Tanpa Nama') : (ruas.nama_jalan || ruas.no_ruas || 'Tanpa Nama');
+          // Pre-compute valid coords for all segments of this ruas (O(n))
+          const validCoords: ([number, number] | null)[] = ruas.segments.map((seg: any) => parseCoord(seg));
 
-            return `
-              <div class="font-sans text-xs p-1">
-                <strong class="block border-b pb-1 mb-1 text-[11px]">${roadName}</strong>
-                <div class="flex justify-between gap-4 mt-1">
-                  <span>STA:</span>
-                  <b>${formatSTA(seg.sta_awal)} - ${formatSTA(seg.sta_akhir)}</b>
-                </div>
-                <div class="flex justify-between gap-4">
-                  <span>${conditionLabel} ${year}:</span>
-                  <b style="color:${colorObj}">${conditionValDisplay} (${kat})</b>
-                </div>
-                <div class="flex justify-between gap-4">
-                  <span>Treatment:</span>
-                  <b class="text-blue-600">${yearData.treatment && yearData.treatment !== 'NONE' ? yearData.treatment : '-'}</b>
-                </div>
-              </div>
-            `;
-          };
-
-          ruas.segments.forEach((seg: any, idx: number) => {
-            if (!seg) return;
-            let lat = parseFloat(seg.latitude || seg.lat1 || seg.lat);
-            let lon = parseFloat(seg.longitude || seg.lon1 || seg.lon);
-            if (isNaN(lat) || isNaN(lon) || lat === 0 || lon === 0) return;
-
-            // Auto-swap if user put longitude in latitude column (Indonesia lat is small, lon is large)
-            if (Math.abs(lat) > Math.abs(lon)) {
-              const temp = lat;
-              lat = lon;
-              lon = temp;
-            }
-
-            const point: [number, number] = [lat, lon];
-            allPoints.push(point);
-
-            let nextLat = lat + 0.0001;
-            let nextLon = lon + 0.0001;
+          for (let idx = 0; idx < ruas.segments.length; idx++) {
+            if (totalSegCount >= MAX_POLYLINES) { capped = true; break; }
             
-            // Cari segmen berikutnya yang memiliki koordinat valid untuk disambungkan
-            for (let j = idx + 1; j < ruas.segments.length; j++) {
-              const nextSeg = ruas.segments[j];
-              if (nextSeg) {
-                let nl = parseFloat(nextSeg.latitude || nextSeg.lat1 || nextSeg.lat);
-                let nlo = parseFloat(nextSeg.longitude || nextSeg.lon1 || nextSeg.lon);
-                if (!isNaN(nl) && !isNaN(nlo) && nl !== 0 && nlo !== 0) {
-                  if (Math.abs(nl) > Math.abs(nlo)) {
-                    const temp = nl;
-                    nl = nlo;
-                    nlo = temp;
-                  }
-                  nextLat = nl;
-                  nextLon = nlo;
-                  break;
-                }
-              }
+            const coord = validCoords[idx];
+            if (!coord) continue;
+
+            allPoints.push(coord);
+
+            // Find next valid coord (pre-computed array, still O(1) amortized)
+            let nextCoord: [number, number] = [coord[0] + 0.0001, coord[1] + 0.0001];
+            for (let j = idx + 1; j < validCoords.length; j++) {
+              if (validCoords[j]) { nextCoord = validCoords[j]!; break; }
             }
 
+            const seg = ruas.segments[idx];
+            const dataYear = seg[year] || { iri: 0, sdi: 0, treatment: 'NONE' };
             const color = getSegmentColor(ruas, seg, year, mode);
+
+            renderItems.push({
+              from: coord,
+              to: nextCoord,
+              color: color || '#334155',
+              seg,
+              yearData: dataYear,
+              ruasNamaJalan: roadName,
+              ruasNoRuas: ruas.no_ruas,
+              isNasional,
+            });
+            totalSegCount++;
+          }
+          if (capped) break;
+        }
+
+        if (capped) setMapRenderCapped(true);
+
+        if (renderItems.length === 0 || renderAbortRef.current) {
+          setIsMapLoading(false);
+          return;
+        }
+
+        // --- PHASE 2: Create Leaflet objects in chunks to avoid UI freeze ---
+        const CHUNK_SIZE = 500;
+        const featureGroup = L.featureGroup();
+        
+        for (let i = 0; i < renderItems.length; i += CHUNK_SIZE) {
+          if (renderAbortRef.current) return;
+          
+          const chunk = renderItems.slice(i, i + CHUNK_SIZE);
+          
+          for (const item of chunk) {
             const polyline = L.polyline(
-              [[lat, lon], [nextLat, nextLon]],
-              { color: color || '#334155', weight: 10, opacity: 1, lineCap: 'round', lineJoin: 'round' }
+              [item.from, item.to],
+              { color: item.color, weight: 10, opacity: 1, lineCap: 'round', lineJoin: 'round' }
             );
 
-            const dataYear = seg[year] || { iri: 0, sdi: 0, treatment: 'NONE' };
-            polyline.bindTooltip(() => getTooltipContent(seg, dataYear), { sticky: true, className: 'custom-tooltip' });
-            polyline.on('click', (e: any) => {
-              L.DomEvent.stopPropagation(e);
-            });
+            // Lazy tooltip — content only built on hover
+            polyline.bindTooltip(() => {
+              const conditionLabel = item.isNasional ? 'IRI' : 'SDI';
+              const conditionValRaw = item.isNasional ? (item.yearData.iri || 0) : (item.yearData.sdi || 0);
+              const conditionValDisplay = (typeof conditionValRaw === 'number' && !isNaN(conditionValRaw) && conditionValRaw > 0)
+                ? conditionValDisplayFix(conditionValRaw, item.isNasional)
+                : String(conditionValRaw || '-');
+              const kat = item.isNasional ? getIriCategory(item.yearData.iri) : getSdiCategory(item.yearData.sdi);
+              const colorObj = item.isNasional ? (IRI_COLORS as any)[kat] : (SDI_COLORS as any)[kat];
 
-            polylines.push(polyline);
-          });
-        });
+              return `
+                <div class="font-sans text-xs p-1">
+                  <strong class="block border-b pb-1 mb-1 text-[11px]">${item.ruasNamaJalan}</strong>
+                  <div class="flex justify-between gap-4 mt-1">
+                    <span>STA:</span>
+                    <b>${formatSTA(item.seg.sta_awal)} - ${formatSTA(item.seg.sta_akhir)}</b>
+                  </div>
+                  <div class="flex justify-between gap-4">
+                    <span>${conditionLabel} ${year}:</span>
+                    <b style="color:${colorObj}">${conditionValDisplay} (${kat})</b>
+                  </div>
+                  <div class="flex justify-between gap-4">
+                    <span>Treatment:</span>
+                    <b class="text-blue-600">${item.yearData.treatment && item.yearData.treatment !== 'NONE' ? item.yearData.treatment : '-'}</b>
+                  </div>
+                </div>
+              `;
+            }, { sticky: true, className: 'custom-tooltip' });
 
-        if (polylines.length > 0) {
-          mapLayersRef.current = L.layerGroup(polylines).addTo(mapRef.current);
-          if (allPoints.length > 0) {
-            mapRef.current.fitBounds(L.latLngBounds(allPoints), { padding: [50, 50], maxZoom: 16 });
+            featureGroup.addLayer(polyline);
           }
+
+          // Yield to main thread between chunks
+          if (i + CHUNK_SIZE < renderItems.length) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+          }
+        }
+
+        if (renderAbortRef.current) return;
+
+        // --- PHASE 3: Add to map and fit bounds ---
+        featureGroup.addTo(mapRef.current);
+        mapLayersRef.current = featureGroup;
+
+        if (allPoints.length > 0) {
+          mapRef.current.fitBounds(L.latLngBounds(allPoints), { padding: [50, 50], maxZoom: 16 });
         }
       } catch (err) {
         console.error("Error updating map polylines:", err);
       } finally {
-        setIsMapLoading(false);
+        if (!renderAbortRef.current) {
+          setIsMapLoading(false);
+        }
       }
-    };
-
-    renderMap();
+    }
   }, [year, mode, selectedRuasDetail, filteredRuasData, filterPengelola, isLeafletLoaded]);
 
   // Fix map grey area when resizing or switching tabs
@@ -1549,6 +1617,17 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
               </div>
             )}
             <div id="gis-map" className="w-full h-full z-0"></div>
+            {/* Warning badge when render is capped */}
+            {mapRenderCapped && !isMapLoading && (
+              <div className="absolute bottom-4 left-4 z-[400] pointer-events-auto">
+                <div className="bg-amber-50 border border-amber-300 rounded-lg px-4 py-2 shadow-lg flex items-center gap-2 max-w-xs">
+                  <Info size={16} className="text-amber-600 shrink-0" />
+                  <span className="text-[10px] font-bold text-amber-700">
+                    Tampilan dibatasi 3000 segmen. Pilih ruas spesifik untuk melihat detail lengkap.
+                  </span>
+                </div>
+              </div>
+            )}
 
             {/* Unified Map Controls */}
             <div className="absolute top-4 right-4 z-[400] flex flex-col gap-2 pointer-events-none">
