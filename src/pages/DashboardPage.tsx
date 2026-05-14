@@ -362,7 +362,11 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
   // Fetch filtered ruas data (with segments) when pengelola filter changes - for Analytics/Trend
   useEffect(() => {
-    if (filterPengelola && (mainView === 'analytics' || mainView === 'trend')) {
+    const isHierarchyValid = 
+      (filterPengelola === 'nasional' && year) || 
+      (filterPengelola && filterPengelola !== 'daerah' && filterPengelola !== 'nasional' && year);
+
+    if (isHierarchyValid && (mainView === 'analytics' || mainView === 'trend')) {
       axios.get('/api/ruas/all', { params: { pengelola: filterPengelola } })
         .then(res => setFilteredRuasData(res.data))
         .catch(err => {
@@ -372,7 +376,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
     } else {
       setFilteredRuasData([]);
     }
-  }, [filterPengelola, mainView]);
+  }, [filterPengelola, year, mainView]);
 
   useEffect(() => {
     fetchData();
@@ -455,7 +459,11 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
   const selectedRuas = selectedRuasDetail;
 
   useEffect(() => {
-    if (isSettingsModalOpen && dbFilterPengelola !== 'all') {
+    const isDbHierarchyValid = 
+      (dbFilterPengelola === 'nasional' && selectedDbYear) || 
+      (dbFilterPengelola === 'daerah' && dbFilterKabupatenKota !== 'all' && selectedDbYear);
+
+    if (isSettingsModalOpen && isDbHierarchyValid) {
       // Fetch data on-demand for Koreksi DB modal - using the specific filter
       const fetchForDb = async () => {
         try {
@@ -482,7 +490,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
         }
       };
       fetchForDb();
-    } else if (isSettingsModalOpen && dbFilterPengelola === 'all') {
+    } else if (isSettingsModalOpen) {
       // Don't load everything - clear and wait for filter selection
       setEditableSegments([]);
     }
@@ -1029,100 +1037,123 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                       </div>
                     </div>
 
-                    <div className="relative">
-                      <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Cari Ruas</label>
-                      <div className="relative">
-                        <Search size={16} className="absolute left-3 top-2.5 text-slate-400" />
-                        <input
-                          type="text"
-                          placeholder="Ketik minimal 2 huruf..."
-                          value={searchRuasSidebar}
-                          onChange={(e) => setSearchRuasSidebar(e.target.value)}
-                          className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-md text-sm focus:outline-none focus:border-[#003B7A] focus:ring-2 focus:ring-blue-100 transition-all font-semibold"
-                        />
-                      </div>
+                    {(() => {
+                      const isHierarchyValid = 
+                        (filterPengelola === 'nasional' && year) || 
+                        (filterPengelola && filterPengelola !== 'daerah' && filterPengelola !== 'nasional' && year);
+                        
+                      if (!isHierarchyValid) {
+                        return (
+                          <div className="bg-slate-100 border border-slate-200 rounded-lg p-4 text-center">
+                            <div className="text-[11px] font-bold text-slate-500 mb-1">Daftar Ruas Belum Tersedia</div>
+                            <div className="text-[9px] text-slate-400">
+                              {(!filterPengelola || filterPengelola === 'daerah') 
+                                ? "Pilih Kewenangan spesifik (Nasional atau Kabupaten/Kota Daerah) terlebih dahulu." 
+                                : "Pilih Tahun Data terlebih dahulu."}
+                            </div>
+                          </div>
+                        );
+                      }
 
-                      {/* Recommendations Dropdown */}
-                      {searchRuasSidebar.length >= 1 && (
-                        <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-[100] max-h-60 overflow-y-auto overflow-x-hidden border-t-0 p-1">
-                          {ruasData.filter(r => {
-                            const q = searchRuasSidebar.toLowerCase();
-                            const name = String(r.nama_jalan || r.nama || '').toLowerCase();
-                            const code = String(r.no_ruas || '').toLowerCase();
-                            return name.includes(q) || code.includes(q);
-                          }).slice(0, 15).map(r => (
-                            <button
-                              key={r.id}
-                              onClick={() => {
-                                setSelectedRuasId(r.no_ruas || r.id);
-                                const auth = String(r.pengelola || 'nasional').toLowerCase();
-                                if (auth === 'nasional') {
-                                  setFilterPengelola('nasional');
-                                } else {
-                                  setFilterPengelola('daerah');
-                                }
-                                setSearchRuasSidebar('');
-                              }}
-                              className="w-full text-left px-3 py-1.5 hover:bg-blue-50 rounded-md flex flex-col gap-0 transition-colors group"
+                      return (
+                        <>
+                          <div className="relative">
+                            <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Cari Ruas</label>
+                            <div className="relative">
+                              <Search size={16} className="absolute left-3 top-2.5 text-slate-400" />
+                              <input
+                                type="text"
+                                placeholder="Ketik minimal 2 huruf..."
+                                value={searchRuasSidebar}
+                                onChange={(e) => setSearchRuasSidebar(e.target.value)}
+                                className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-md text-sm focus:outline-none focus:border-[#003B7A] focus:ring-2 focus:ring-blue-100 transition-all font-semibold"
+                              />
+                            </div>
+
+                            {/* Recommendations Dropdown */}
+                            {searchRuasSidebar.length >= 1 && (
+                              <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-[100] max-h-60 overflow-y-auto overflow-x-hidden border-t-0 p-1">
+                                {ruasData.filter(r => {
+                                  const q = searchRuasSidebar.toLowerCase();
+                                  const name = String(r.nama_jalan || r.nama || '').toLowerCase();
+                                  const code = String(r.no_ruas || '').toLowerCase();
+                                  return name.includes(q) || code.includes(q);
+                                }).slice(0, 15).map(r => (
+                                  <button
+                                    key={r.id}
+                                    onClick={() => {
+                                      setSelectedRuasId(r.no_ruas || r.id);
+                                      const auth = String(r.pengelola || 'nasional').toLowerCase();
+                                      if (auth === 'nasional') {
+                                        setFilterPengelola('nasional');
+                                      } else {
+                                        setFilterPengelola('daerah');
+                                      }
+                                      setSearchRuasSidebar('');
+                                    }}
+                                    className="w-full text-left px-3 py-1.5 hover:bg-blue-50 rounded-md flex flex-col gap-0 transition-colors group"
+                                  >
+                                    <div className="flex justify-between items-center">
+                                      <div className="text-[9px] font-black text-blue-500 uppercase">
+                                        {r.no_ruas || r.id}
+                                      </div>
+                                      <div className={`text-[8px] font-black px-1 rounded border ${String(r.pengelola).toLowerCase() === 'nasional'
+                                          ? 'bg-orange-50 text-orange-600 border-orange-100'
+                                          : 'bg-blue-50 text-blue-600 border-blue-100'
+                                        }`}>
+                                        {String(r.pengelola).toUpperCase()}
+                                      </div>
+                                    </div>
+                                    <div className="text-[11px] font-bold text-slate-700 truncate">
+                                      {r.nama_jalan === 'Tanpa Nama' ? 'Tanpa Nama' : (r.nama_jalan || r.nama || 'Tanpa Nama')}
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          <div>
+                            <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Daftar Ruas</label>
+                            <select
+                              value={selectedRuasId || ""}
+                              onChange={(e) => setSelectedRuasId(e.target.value || null)}
+                              className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-[#003B7A] focus:ring-2 focus:ring-blue-100 text-slate-700 font-semibold shadow-sm cursor-pointer"
                             >
-                              <div className="flex justify-between items-center">
-                                <div className="text-[9px] font-black text-blue-500 uppercase">
-                                  {r.no_ruas || r.id}
-                                </div>
-                                <div className={`text-[8px] font-black px-1 rounded border ${String(r.pengelola).toLowerCase() === 'nasional'
-                                    ? 'bg-orange-50 text-orange-600 border-orange-100'
-                                    : 'bg-blue-50 text-blue-600 border-blue-100'
-                                  }`}>
-                                  {String(r.pengelola).toUpperCase()}
-                                </div>
-                              </div>
-                              <div className="text-[11px] font-bold text-slate-700 truncate">
-                                {r.nama_jalan === 'Tanpa Nama' ? 'Tanpa Nama' : (r.nama_jalan || r.nama || 'Tanpa Nama')}
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    <div>
-                      <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Daftar Ruas</label>
-                      <select
-                        value={selectedRuasId || ""}
-                        onChange={(e) => setSelectedRuasId(e.target.value || null)}
-                        className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-[#003B7A] focus:ring-2 focus:ring-blue-100 text-slate-700 font-semibold shadow-sm cursor-pointer"
-                      >
-                        <option value="">-- Pilih Ruas Jalan --</option>
-                        {(() => {
-                          const filtered = ruasData.filter(r => {
-                            const p = String(r.pengelola || 'nasional').toLowerCase();
-                            const k = String(r.kabupaten_kota || '').toLowerCase();
-                            const q = searchRuasSidebar.toLowerCase();
-                            let matchesAuthority = true;
-                            if (filterPengelola === 'nasional') {
-                              matchesAuthority = p === 'nasional';
-                            } else if (filterPengelola === 'daerah') {
-                              matchesAuthority = p !== 'nasional';
-                            } else if (filterPengelola) {
-                              matchesAuthority = p === filterPengelola || k === filterPengelola;
-                            }
-                            const matchesSearch = q === '' ||
-                              String(r.no_ruas || '').toLowerCase().includes(q) ||
-                              String(r.nama_jalan || r.nama || '').toLowerCase().includes(q);
-                            return matchesAuthority && matchesSearch;
-                          });
-                          return (
-                            <>
-                              {filtered.map(r => (
-                                <option key={r.id} value={r.no_ruas || r.id}>
-                                  {r.no_ruas || r.id} : {r.nama_jalan === 'Tanpa Nama' ? 'Tanpa Nama' : (r.nama_jalan || r.nama || 'Tanpa Nama')}
-                                </option>
-                              ))}
-                            </>
-                          );
-                        })()}
-                      </select>
-                    </div>
+                              <option value="">-- Pilih Ruas Jalan --</option>
+                              {(() => {
+                                const filtered = ruasData.filter(r => {
+                                  const p = String(r.pengelola || 'nasional').toLowerCase();
+                                  const k = String(r.kabupaten_kota || '').toLowerCase();
+                                  const q = searchRuasSidebar.toLowerCase();
+                                  let matchesAuthority = true;
+                                  if (filterPengelola === 'nasional') {
+                                    matchesAuthority = p === 'nasional';
+                                  } else if (filterPengelola === 'daerah') {
+                                    matchesAuthority = p !== 'nasional';
+                                  } else if (filterPengelola) {
+                                    matchesAuthority = p === filterPengelola || k === filterPengelola;
+                                  }
+                                  const matchesSearch = q === '' ||
+                                    String(r.no_ruas || '').toLowerCase().includes(q) ||
+                                    String(r.nama_jalan || r.nama || '').toLowerCase().includes(q);
+                                  return matchesAuthority && matchesSearch;
+                                });
+                                return (
+                                  <>
+                                    {filtered.map(r => (
+                                      <option key={r.id} value={r.no_ruas || r.id}>
+                                        {r.no_ruas || r.id} : {r.nama_jalan === 'Tanpa Nama' ? 'Tanpa Nama' : (r.nama_jalan || r.nama || 'Tanpa Nama')}
+                                      </option>
+                                    ))}
+                                  </>
+                                );
+                              })()}
+                            </select>
+                          </div>
+                        </>
+                      );
+                    })()}
 
                     <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
                       <label className="text-xs font-bold text-slate-500 uppercase mb-3 block">Mode Tampilan</label>
@@ -1416,21 +1447,32 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                 </div>
               </div>
             )}
-            {!selectedRuasId && !filterPengelola && !isMapLoading && (
-              <div className="absolute inset-0 z-[500] bg-slate-50/80 backdrop-blur-sm flex items-center justify-center pointer-events-none">
-                <div className="bg-white px-8 py-6 rounded-2xl shadow-xl border border-blue-100 flex flex-col items-center gap-4 text-center max-w-md">
-                  <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center text-blue-500 mb-2">
-                    <Filter size={32} />
+            {(() => {
+              const isHierarchyValid = 
+                (filterPengelola === 'nasional' && year) || 
+                (filterPengelola && filterPengelola !== 'daerah' && filterPengelola !== 'nasional' && year);
+              
+              if (!selectedRuasId && !isHierarchyValid && !isMapLoading) {
+                return (
+                  <div className="absolute inset-0 z-[500] bg-slate-50/80 backdrop-blur-sm flex items-center justify-center pointer-events-none">
+                    <div className="bg-white px-8 py-6 rounded-2xl shadow-xl border border-blue-100 flex flex-col items-center gap-4 text-center max-w-md">
+                      <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center text-blue-500 mb-2">
+                        <Filter size={32} />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-black text-[#003B7A] mb-2 uppercase">Filter Belum Lengkap</h3>
+                        <p className="text-sm font-medium text-slate-500">
+                          {(!filterPengelola || filterPengelola === 'daerah') 
+                            ? "Silakan pilih Kewenangan Nasional atau Wilayah Kabupaten/Kota spesifik untuk menampilkan data pada peta." 
+                            : "Silakan pilih Tahun Data untuk menampilkan kondisi ruas."}
+                        </p>
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="text-lg font-black text-[#003B7A] mb-2 uppercase">Peta Terlalu Besar</h3>
-                    <p className="text-sm font-medium text-slate-500">
-                      Untuk mencegah browser lambat/crash karena puluhan ribu data koordinat, silakan <b>Pilih Kewenangan</b> atau <b>Cari Ruas</b> pada panel filter di sebelah kiri untuk menampilkan data.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
+                );
+              }
+              return null;
+            })()}
             <div id="gis-map" className="w-full h-full z-0"></div>
 
             {/* Unified Map Controls */}
@@ -2010,19 +2052,35 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                     })()}
                   </thead>
                   <tbody>
-                    {dbFilterPengelola === 'all' ? (
-                      <tr>
-                        <td colSpan={15} className="py-12 text-center text-slate-500">
-                          <div className="flex flex-col items-center gap-3">
-                            <Filter size={40} className="text-blue-300" />
-                            <div className="text-base font-bold text-slate-700">Pilih Kewenangan Terlebih Dahulu</div>
-                            <div className="text-xs opacity-75 max-w-md">
-                              Untuk mencegah browser lambat, silakan pilih <b>NASIONAL</b> atau <b>DAERAH</b> pada filter Kewenangan di atas. Jika daerah, pilih juga wilayah spesifik.
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    ) : filteredEditableSegments.length === 0 ? (
+                    {(() => {
+                      const isDbHierarchyValid = 
+                        (dbFilterPengelola === 'nasional' && selectedDbYear) || 
+                        (dbFilterPengelola === 'daerah' && dbFilterKabupatenKota !== 'all' && selectedDbYear);
+                      
+                      if (!isDbHierarchyValid) {
+                        return (
+                          <tr>
+                            <td colSpan={15} className="py-12 text-center text-slate-500">
+                              <div className="flex flex-col items-center gap-3">
+                                <Filter size={40} className="text-blue-300" />
+                                <div className="text-base font-bold text-slate-700">Filter Belum Lengkap</div>
+                                <div className="text-xs opacity-75 max-w-md">
+                                  Untuk mencegah browser lambat, silakan pilih <b>Kewenangan Nasional</b> atau <b>Wilayah Kabupaten/Kota spesifik</b> pada filter di atas.
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      }
+                      return null;
+                    })()}
+                    {(() => {
+                      const isDbHierarchyValid = 
+                        (dbFilterPengelola === 'nasional' && selectedDbYear) || 
+                        (dbFilterPengelola === 'daerah' && dbFilterKabupatenKota !== 'all' && selectedDbYear);
+                      if (!isDbHierarchyValid) return null;
+                      
+                      return filteredEditableSegments.length === 0 ? (
                       <tr>
                         <td colSpan={15} className="py-8 text-center text-slate-500">
                           Tidak ada data yang sesuai dengan pencarian Anda.
@@ -2168,7 +2226,8 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                           {s.tahun}
                         </td>
                       </tr>
-                    ))}
+                    ));
+                    })()}
                   </tbody>
                 </table>
               </div>
