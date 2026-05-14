@@ -412,6 +412,8 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
     }
   }, [selectedRuasId, fetchRuasDetail]);
 
+  const [isDataLoading, setIsDataLoading] = useState(false);
+
   // Fetch filtered ruas data (with segments) when pengelola filter changes - for Analytics/Trend
   useEffect(() => {
     const isHierarchyValid = 
@@ -419,14 +421,21 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
       (filterPengelola && filterPengelola !== 'daerah' && filterPengelola !== 'nasional' && year);
 
     if (isHierarchyValid && (mainView === 'analytics' || mainView === 'trend')) {
-      axios.get('/api/ruas/all', { params: { pengelola: filterPengelola } })
-        .then(res => setFilteredRuasData(res.data))
-        .catch(err => {
-          console.error("Gagal mengambil data terfilter:", err);
-          setFilteredRuasData([]);
-        });
+      setIsDataLoading(true);
+      
+      // Yield to main thread so UI doesn't freeze on dropdown click
+      setTimeout(() => {
+        axios.get('/api/ruas/all', { params: { pengelola: filterPengelola } })
+          .then(res => setFilteredRuasData(res.data))
+          .catch(err => {
+            console.error("Gagal mengambil data terfilter:", err);
+            setFilteredRuasData([]);
+          })
+          .finally(() => setIsDataLoading(false));
+      }, 50);
     } else {
       setFilteredRuasData([]);
+      setIsDataLoading(false);
     }
   }, [filterPengelola, year, mainView]);
 
@@ -1731,16 +1740,24 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
           {mainView === 'analytics' && (
             filterPengelola ? (
-              <AnalyticsDashboard
-                ruasData={filteredRuasData}
-                selectedYear={year}
-                availableYears={availableYears}
-                externalFilterKewenangan={filterPengelola}
-                externalSearchQuery={anaSearchQuery}
-                externalFilterKecamatan={anaFilterKecamatan}
-                externalFilterRuas={anaFilterRuas}
-                externalFilterStatus={anaFilterStatus}
-              />
+              isDataLoading ? (
+                <div className="flex-1 flex flex-col items-center justify-center bg-slate-50 p-8 h-full">
+                  <div className="w-16 h-16 border-4 border-[#003B7A] border-t-transparent rounded-full animate-spin mb-6"></div>
+                  <h2 className="text-xl font-black text-[#003B7A] uppercase">Memproses Data Analisis...</h2>
+                  <p className="text-slate-500 font-medium">Mohon tunggu, memuat dan menghitung metrik untuk wilayah terpilih.</p>
+                </div>
+              ) : (
+                <AnalyticsDashboard
+                  ruasData={filteredRuasData}
+                  selectedYear={year}
+                  availableYears={availableYears}
+                  externalFilterKewenangan={filterPengelola}
+                  externalSearchQuery={anaSearchQuery}
+                  externalFilterKecamatan={anaFilterKecamatan}
+                  externalFilterRuas={anaFilterRuas}
+                  externalFilterStatus={anaFilterStatus}
+                />
+              )
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center bg-slate-50 p-8 text-center h-full">
                 <div className="bg-white p-12 rounded-3xl shadow-xl border border-blue-100 max-w-md">
@@ -1762,16 +1779,24 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
           {mainView === 'trend' && (
             filterPengelola ? (
-              <TrendDashboard
-                ruasData={filteredRuasData}
-                availableYears={availableYears}
-                externalFilterKewenangan={filterPengelola}
-                externalFilterRuas={treFilterRuas}
-                externalFilterSegmen={treFilterSegmen}
-                externalFilterTren={treFilterTren}
-                externalFilterKondisi={treFilterKondisi}
-                externalFilterTreatment={treFilterTreatment}
-              />
+              isDataLoading ? (
+                <div className="flex-1 flex flex-col items-center justify-center bg-slate-50 p-8 h-full">
+                  <div className="w-16 h-16 border-4 border-[#003B7A] border-t-transparent rounded-full animate-spin mb-6"></div>
+                  <h2 className="text-xl font-black text-[#003B7A] uppercase">Memproses Tren...</h2>
+                  <p className="text-slate-500 font-medium">Menghitung laju kerusakan historis jalan, mohon tunggu sebentar.</p>
+                </div>
+              ) : (
+                <TrendDashboard
+                  ruasData={filteredRuasData}
+                  availableYears={availableYears}
+                  externalFilterKewenangan={filterPengelola}
+                  externalFilterRuas={treFilterRuas}
+                  externalFilterSegmen={treFilterSegmen}
+                  externalFilterTren={treFilterTren}
+                  externalFilterKondisi={treFilterKondisi}
+                  externalFilterTreatment={treFilterTreatment}
+                />
+              )
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center bg-slate-50 p-8 text-center h-full">
                 <div className="bg-white p-12 rounded-3xl shadow-xl border border-blue-100 max-w-md">
