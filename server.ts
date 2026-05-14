@@ -49,6 +49,11 @@ db.exec(`
     treatment TEXT DEFAULT 'NONE',
     UNIQUE(segmen_id, tahun)
   );
+
+  CREATE INDEX IF NOT EXISTS idx_segmen_ruas ON segmen_jalan(ruas_id);
+  CREATE INDEX IF NOT EXISTS idx_annual_segmen ON annual_data(segmen_id);
+  CREATE INDEX IF NOT EXISTS idx_annual_tahun ON annual_data(tahun);
+  CREATE INDEX IF NOT EXISTS idx_ruas_pengelola ON ruas_jalan(pengelola);
 `);
 
 // Try running migrations for existing databases
@@ -682,8 +687,12 @@ async function startServer() {
           db.prepare("DELETE FROM annual_data").run();
           db.prepare("DELETE FROM segmen_jalan").run();
           db.prepare("DELETE FROM ruas_jalan").run();
+          db.prepare("DELETE FROM sqlite_sequence WHERE name IN ('annual_data', 'segmen_jalan', 'ruas_jalan')").run();
         }
       })();
+      if (!year) {
+        db.exec("VACUUM"); // Compact DB to free up space
+      }
       res.json({ success: true, message: year ? `Data tahun ${year} berhasil dihapus` : "Database berhasil dikosongkan" });
     } catch (error) {
       console.error(error);
