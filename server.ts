@@ -71,7 +71,7 @@ if (!adminExists) {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = parseInt(process.env.PORT || '3000', 10);
 
   app.use(cors());
   app.use(express.json({ limit: '50mb' }));
@@ -308,16 +308,47 @@ async function startServer() {
 
     try {
       const count = transaction(data);
-      res.json({ success: true, count });
+      
+      // Verify data was actually persisted
+      const verifyRuas = db.prepare("SELECT COUNT(*) as count FROM ruas_jalan").get() as any;
+      const verifySegmen = db.prepare("SELECT COUNT(*) as count FROM segmen_jalan").get() as any;
+      const verifyAnnual = db.prepare("SELECT COUNT(*) as count FROM annual_data").get() as any;
+      console.log(`[IMPORT OK] Imported: ${count} rows. DB now has: ${verifyRuas.count} ruas, ${verifySegmen.count} segmen, ${verifyAnnual.count} annual_data`);
+      
+      res.json({ success: true, count, db_counts: { ruas: verifyRuas.count, segmen: verifySegmen.count, annual: verifyAnnual.count } });
     } catch (error) {
       console.error("Import Error:", error);
       res.status(500).json({ detail: "Gagal menyimpan data ke database. Periksa format file Anda." });
     }
   });
 
+  // Debug endpoint to check DB state
+  app.get("/api/debug/counts", (req, res) => {
+    try {
+      const ruas = db.prepare("SELECT COUNT(*) as count FROM ruas_jalan").get() as any;
+      const segmen = db.prepare("SELECT COUNT(*) as count FROM segmen_jalan").get() as any;
+      const annual = db.prepare("SELECT COUNT(*) as count FROM annual_data").get() as any;
+      const users = db.prepare("SELECT COUNT(*) as count FROM users").get() as any;
+      const sampleRuas = db.prepare("SELECT * FROM ruas_jalan LIMIT 3").all();
+      const sampleSegmen = db.prepare("SELECT * FROM segmen_jalan LIMIT 3").all();
+      const sampleAnnual = db.prepare("SELECT * FROM annual_data LIMIT 3").all();
+      res.json({
+        counts: { ruas: ruas.count, segmen: segmen.count, annual: annual.count, users: users.count },
+        samples: { ruas: sampleRuas, segmen: sampleSegmen, annual: sampleAnnual },
+        db_path: path.resolve("roadtrack.db"),
+        node_env: process.env.NODE_ENV,
+        port: process.env.PORT
+      });
+    } catch (error) {
+      console.error("Debug Error:", error);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
   app.get("/api/ruas/all", (req, res) => {
     try {
       const ruas = db.prepare("SELECT * FROM ruas_jalan").all();
+      console.log(`[FETCH] /api/ruas/all => ruas: ${ruas.length}`);
       const allSegments = db.prepare("SELECT * FROM segmen_jalan ORDER BY ruas_id, sta_awal ASC").all();
       const allAnnuals = db.prepare("SELECT * FROM annual_data").all();
 

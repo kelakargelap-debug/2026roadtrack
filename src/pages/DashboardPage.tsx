@@ -391,7 +391,8 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
         setTimeout(() => {
           setIsUploadModalOpen(false);
           setUploadProgress(null);
-          alert(`Berhasil mengunggah ${res.data.count} baris data!`);
+          const dbC = res.data.db_counts || {};
+          alert(`Berhasil mengunggah ${res.data.count} baris data!\n\nVerifikasi DB:\n- Ruas: ${dbC.ruas || 0}\n- Segmen: ${dbC.segmen || 0}\n- Data Tahunan: ${dbC.annual || 0}`);
           fetchData();
         }, 800);
       } catch (error: any) {
