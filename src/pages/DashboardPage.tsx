@@ -191,6 +191,10 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
   const [treFilterTren, setTreFilterTren] = useState('all');
   const [treFilterKondisi, setTreFilterKondisi] = useState('all');
   const [treFilterTreatment, setTreFilterTreatment] = useState('all');
+  // State for on-demand loaded ruas detail (with segments)
+  const [selectedRuasDetail, setSelectedRuasDetail] = useState<any>(null);
+  // State for filtered ruas data (used by Analytics/Trend - loaded by pengelola filter)
+  const [filteredRuasData, setFilteredRuasData] = useState<any[]>([]);
 
   // --- DERIVED DATA FOR SIDEBARS ---
   const anaSegments = useMemo(() => {
@@ -257,10 +261,10 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
   const treSegmenOptions = useMemo(() => {
     if (treFilterRuas === 'all') return [];
-    const ruas = ruasData.find(r => r.no_ruas === treFilterRuas);
+    const ruas = filteredRuasData.find(r => r.no_ruas === treFilterRuas);
     if (!ruas || !ruas.segments) return [];
-    return Array.from(new Set(ruas.segments.map((s: any) => s.segment_id))).sort();
-  }, [ruasData, treFilterRuas]);
+    return Array.from(new Set<string>(ruas.segments.map((s: any) => String(s.segment_id)))).sort();
+  }, [filteredRuasData, treFilterRuas]);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [searchRuasSidebar, setSearchRuasSidebar] = useState('');
 
@@ -315,11 +319,6 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
   useEffect(() => {
     setDbPage(1);
   }, [selectedDbYear, selectedDbRuas, searchSegQuery, dbFilterPengelola, dbFilterKabupatenKota]);
-
-  // State for on-demand loaded ruas detail (with segments)
-  const [selectedRuasDetail, setSelectedRuasDetail] = useState<any>(null);
-  // State for filtered ruas data (used by Analytics/Trend - loaded by pengelola filter)
-  const [filteredRuasData, setFilteredRuasData] = useState<any[]>([]);
 
   const fetchData = React.useCallback(async () => {
     try {
