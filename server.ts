@@ -345,14 +345,136 @@ async function startServer() {
     }
   });
 
-  app.get("/api/ruas/all", (req, res) => {
+  // LIGHTWEIGHT: Returns ruas metadata + segment count + available years. NO segments data.
+  app.get("/api/ruas/list", (req, res) => {
     try {
       const ruas = db.prepare("SELECT * FROM ruas_jalan").all();
-      console.log(`[FETCH] /api/ruas/all => ruas: ${ruas.length}`);
-      const allSegments = db.prepare("SELECT * FROM segmen_jalan ORDER BY ruas_id, sta_awal ASC").all();
-      const allAnnuals = db.prepare("SELECT * FROM annual_data").all();
+      const segCounts = db.prepare("SELECT ruas_id, COUNT(*) as count FROM segmen_jalan GROUP BY ruas_id").all() as any[];
+      const segCountMap = new Map(segCounts.map((s: any) => [s.ruas_id, s.count]));
 
-      // Indexing for faster joining
+      // Get available years
+      const yearsRows = db.prepare("SELECT DISTINCT tahun FROM annual_data ORDER BY tahun DESC").all() as any[];
+      const availableYears = yearsRows.map((r: any) => r.tahun);
+
+      // Calculate panjang from segments if missing
+      const staRanges = db.prepare("SELECT ruas_id, MIN(sta_awal) as min_sta, MAX(sta_akhir) as max_sta FROM segmen_jalan GROUP BY ruas_id").all() as any[];
+      const staMap = new Map(staRanges.map((s: any) => [s.ruas_id, s]));
+
+      const result = ruas.map((r: any) => {
+        let panjang = r.panjang_km;
+        if (!panjang) {
+          const sta = staMap.get(r.id);
+          if (sta && sta.min_sta !== null && sta.max_sta !== null) {
+            panjang = parseFloat(((sta.max_sta - sta.min_sta) / 1000).toFixed(3));
+          }
+        }
+        return {
+          ...r,
+          panjang_km: panjang,
+          segment_count: segCountMap.get(r.id) || 0
+        };
+      });
+
+      console.log(`[FETCH] /api/ruas/list => ${result.length} ruas, ${availableYears.length} years`);
+      res.json({ ruas: result, availableYears });
+    } catch (error) {
+      console.error("Fetch Ruas List Error:", error);
+      res.status(500).json({ detail: "Gagal mengambil daftar ruas" });
+    }
+  });
+
+  // ON-DEMAND: Returns a single ruas with ALL its segments + annual data
+  app.get("/api/ruas/:noRuas/detail", (req, res) => {
+    try {
+      const { noRuas } = req.params;
+      const ruas = db.prepare("SELECT * FROM ruas_jalan WHERE no_ruas = ?").get(noRuas) as any;
+      if (!ruas) return res.status(404).json({ detail: "Ruas tidak ditemukan" });
+
+      const segments = db.prepare("SELECT * FROM segmen_jalan WHERE ruas_id = ? ORDER BY sta_awal ASC").all(ruas.id);
+      const segIds = segments.map((s: any) => s.id);
+      
+      let annuals: any[] = [];
+      if (segIds.length > 0) {
+        const placeholders = segIds.map(() => '?').join(',');
+        annuals = db.prepare(`SELECT * FROM annual_data WHERE segmen_id IN (${placeholders})`).all(...segIds);
+      }
+
+      const annualsBySegmen = new Map();
+      annuals.forEach((a: any) => {
+        if (!annualsBySegmen.has(a.segmen_id)) annualsBySegmen.set(a.segmen_id, []);
+        annualsBySegmen.get(a.segmen_id).push(a);
+      });
+
+      const enrichedSegments = segments.map((s: any) => {
+        const yearAnnuals = annualsBySegmen.get(s.id) || [];
+        const yearsData: any = {};
+        yearAnnuals.forEach((a: any) => {
+          yearsData[a.tahun] = { iri: a.iri, sdi: a.sdi, treatment: a.treatment };
+        });
+        return { ...s, ...yearsData };
+      });
+
+      // Calculate panjang if missing
+      let panjang = ruas.panjang_km;
+      if (!panjang && enrichedSegments.length > 0) {
+        let min = Infinity, max = -Infinity;
+        enrichedSegments.forEach((s: any) => {
+          if (s.sta_awal !== null && s.sta_awal < min) min = s.sta_awal;
+          if (s.sta_akhir !== null && s.sta_akhir > max) max = s.sta_akhir;
+        });
+        if (min !== Infinity && max !== -Infinity) {
+          panjang = parseFloat(((max - min) / 1000).toFixed(3));
+        }
+      }
+
+      res.json({ ...ruas, panjang_km: panjang, segments: enrichedSegments });
+    } catch (error) {
+      console.error("Fetch Ruas Detail Error:", error);
+      res.status(500).json({ detail: "Gagal mengambil detail ruas" });
+    }
+  });
+
+  // FILTERED: Returns ruas+segments only for a specific filter (pengelola). Used by Analytics/Trend.
+  app.get("/api/ruas/all", (req, res) => {
+    try {
+      const { pengelola } = req.query;
+      
+      let ruas: any[];
+      if (pengelola && pengelola !== 'all') {
+        if (pengelola === 'nasional') {
+          ruas = db.prepare("SELECT * FROM ruas_jalan WHERE LOWER(pengelola) = 'nasional'").all();
+        } else if (pengelola === 'daerah') {
+          ruas = db.prepare("SELECT * FROM ruas_jalan WHERE LOWER(pengelola) != 'nasional'").all();
+        } else {
+          ruas = db.prepare("SELECT * FROM ruas_jalan WHERE LOWER(pengelola) = ? OR LOWER(kabupaten_kota) = ?").all(
+            String(pengelola).toLowerCase(), String(pengelola).toLowerCase()
+          );
+        }
+      } else {
+        // No filter = return empty to prevent browser crash
+        return res.json([]);
+      }
+
+      console.log(`[FETCH] /api/ruas/all?pengelola=${pengelola} => ruas: ${ruas.length}`);
+      
+      const ruasIds = ruas.map((r: any) => r.id);
+      if (ruasIds.length === 0) return res.json([]);
+
+      const placeholders = ruasIds.map(() => '?').join(',');
+      const allSegments = db.prepare(`SELECT * FROM segmen_jalan WHERE ruas_id IN (${placeholders}) ORDER BY ruas_id, sta_awal ASC`).all(...ruasIds);
+      
+      const segIds = allSegments.map((s: any) => s.id);
+      let allAnnuals: any[] = [];
+      if (segIds.length > 0) {
+        // Process in batches of 999 (SQLite parameter limit)
+        for (let i = 0; i < segIds.length; i += 999) {
+          const batch = segIds.slice(i, i + 999);
+          const ph = batch.map(() => '?').join(',');
+          const batchResults = db.prepare(`SELECT * FROM annual_data WHERE segmen_id IN (${ph})`).all(...batch);
+          allAnnuals.push(...batchResults);
+        }
+      }
+
       const annualsBySegmen = new Map();
       allAnnuals.forEach((a: any) => {
         if (!annualsBySegmen.has(a.segmen_id)) annualsBySegmen.set(a.segmen_id, []);
@@ -362,24 +484,19 @@ async function startServer() {
       const segmentsByRuas = new Map();
       allSegments.forEach((s: any) => {
         if (!segmentsByRuas.has(s.ruas_id)) segmentsByRuas.set(s.ruas_id, []);
-        
         const annuals = annualsBySegmen.get(s.id) || [];
         const yearsData: any = {};
         annuals.forEach((a: any) => {
           yearsData[a.tahun] = { iri: a.iri, sdi: a.sdi, treatment: a.treatment };
         });
-        
         segmentsByRuas.get(s.ruas_id).push({ ...s, ...yearsData });
       });
 
       const result = ruas.map((r: any) => {
         const segments = segmentsByRuas.get(r.id) || [];
-        
-        // Calculate length if missing
         let panjang = r.panjang_km;
         if (!panjang && segments.length > 0) {
-          let min = Infinity;
-          let max = -Infinity;
+          let min = Infinity, max = -Infinity;
           segments.forEach((s: any) => {
             if (s.sta_awal !== null && s.sta_awal < min) min = s.sta_awal;
             if (s.sta_akhir !== null && s.sta_akhir > max) max = s.sta_akhir;
@@ -388,13 +505,9 @@ async function startServer() {
             panjang = parseFloat(((max - min) / 1000).toFixed(3));
           }
         }
-
-        return {
-          ...r,
-          panjang_km: panjang,
-          segments: segments
-        };
+        return { ...r, panjang_km: panjang, segments };
       });
+      
       res.json(result);
     } catch (error) {
       console.error("Fetch All Error:", error);
