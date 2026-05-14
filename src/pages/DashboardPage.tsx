@@ -208,6 +208,14 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
   const mapRef = useRef<any>(null);
   const mapLayersRef = useRef<any>(null);
 
+  // --- AUTH GUARD ---
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setView('landing');
+    }
+  }, [setView]);
+
   const [ruasData, setRuasData] = useState<any[]>([]);
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const [availableYears, setAvailableYears] = useState<string[]>([]);
@@ -1212,6 +1220,25 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                 animate={{ opacity: 1 }}
                 className="p-4 space-y-6"
               >
+                {/* --- GLOBAL SIDEBAR FILTERS --- */}
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <label className="text-xs font-black text-slate-400 uppercase mb-3 block">Tahun Data</label>
+                  <div className="relative group">
+                    <select
+                      value={year}
+                      onChange={(e) => setYear(e.target.value)}
+                      className="w-full text-[11px] py-2.5 px-3 bg-white border border-slate-200 rounded-lg font-black text-[#003B7A] uppercase tracking-wider shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all cursor-pointer appearance-none"
+                    >
+                      {availableYears.map(y => (
+                        <option key={y} value={y}>{y}</option>
+                      ))}
+                    </select>
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                      <ChevronDown size={14} />
+                    </div>
+                  </div>
+                </div>
+
                 {/* --- MAP SIDEBAR CONTENT --- */}
                 {mainView === 'map' && (
                   <div className="space-y-6">
@@ -1631,18 +1658,6 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
             {/* Unified Map Controls */}
             <div className="absolute top-4 right-4 z-[400] flex flex-col gap-2 pointer-events-none">
-              <div className="bg-white rounded-lg shadow-xl border border-slate-200 p-2 min-w-[140px] pointer-events-auto">
-                <label className="text-[10px] font-black text-slate-400 uppercase px-2 mb-1 block">Tahun Data</label>
-                <select
-                  value={year}
-                  onChange={(e) => setYear(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-100 rounded text-xs font-bold text-[#003B7A] focus:ring-0 cursor-pointer py-1.5 px-2"
-                >
-                  {availableYears.map(y => (
-                    <option key={y} value={y}>{y}</option>
-                  ))}
-                </select>
-              </div>
 
               {/* Filter info badge */}
               <div className="bg-white rounded-lg shadow-xl border border-slate-200 p-2 min-w-[140px] pointer-events-auto">
