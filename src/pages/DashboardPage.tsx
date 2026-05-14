@@ -279,7 +279,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
   const [dbPage, setDbPage] = useState(1);
   const dbItemsPerPage = 50;
 
-  const filteredEditableSegments = editableSegments.filter(s => {
+  const filteredEditableSegments = useMemo(() => editableSegments.filter(s => {
     if (!selectedDbYear || !selectedDbRuas) return false;
     const q = searchSegQuery.toLowerCase();
     const matchesSearch = (
@@ -304,7 +304,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
     }
 
     return matchesSearch && matchesRuas && matchesAuthority && matchesTerritory;
-  });
+  }), [editableSegments, selectedDbYear, selectedDbRuas, searchSegQuery, dbFilterPengelola, dbFilterKabupatenKota]);
 
   const totalDbPages = Math.ceil(filteredEditableSegments.length / dbItemsPerPage);
   const paginatedSegments = filteredEditableSegments.slice(
@@ -456,11 +456,12 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
   const selectedRuas = selectedRuasDetail;
 
   useEffect(() => {
-    if (isSettingsModalOpen) {
-      // Fetch data on-demand for Koreksi DB modal
+    if (isSettingsModalOpen && dbFilterPengelola !== 'all') {
+      // Fetch data on-demand for Koreksi DB modal - using the specific filter
       const fetchForDb = async () => {
         try {
-          const filter = dbFilterPengelola !== 'all' ? dbFilterPengelola : 'nasional';
+          // Use kabupaten_kota filter if set, otherwise use pengelola
+          const filter = dbFilterKabupatenKota !== 'all' ? dbFilterKabupatenKota : dbFilterPengelola;
           const res = await axios.get('/api/ruas/all', { params: { pengelola: filter } });
           const data = res.data;
           const flattened = data.flatMap((r: any) => (r.segments || []).map((s: any) => ({
@@ -482,8 +483,11 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
         }
       };
       fetchForDb();
+    } else if (isSettingsModalOpen && dbFilterPengelola === 'all') {
+      // Don't load everything - clear and wait for filter selection
+      setEditableSegments([]);
     }
-  }, [isSettingsModalOpen, selectedDbYear, dbFilterPengelola]);
+  }, [isSettingsModalOpen, selectedDbYear, dbFilterPengelola, dbFilterKabupatenKota]);
 
   const handleUpdateLocalSegment = (id: any, field: string, value: any) => {
     setDirtyIds(prev => {
@@ -1892,23 +1896,34 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                     >
                       <option value="" disabled className="text-slate-400">Pilih...</option>
                       <option value="all" className="text-slate-900">SEMUA RUAS</option>
-                      {ruasData.filter(r => {
-                        const p = String(r.pengelola || 'nasional').toLowerCase();
-                        const k = String(r.kabupaten_kota || '').toLowerCase();
+                      {(() => {
+                        const filtered = ruasData.filter(r => {
+                          const p = String(r.pengelola || 'nasional').toLowerCase();
+                          const k = String(r.kabupaten_kota || '').toLowerCase();
 
-                        if (dbFilterPengelola !== 'all') {
-                          if (dbFilterPengelola === 'nasional' && p !== 'nasional') return false;
-                          if (dbFilterPengelola === 'daerah' && p === 'nasional') return false;
-                        }
+                          if (dbFilterPengelola !== 'all') {
+                            if (dbFilterPengelola === 'nasional' && p !== 'nasional') return false;
+                            if (dbFilterPengelola === 'daerah' && p === 'nasional') return false;
+                          }
 
-                        if (dbFilterKabupatenKota !== 'all') {
-                          if (p !== dbFilterKabupatenKota && k !== dbFilterKabupatenKota) return false;
-                        }
+                          if (dbFilterKabupatenKota !== 'all') {
+                            if (p !== dbFilterKabupatenKota && k !== dbFilterKabupatenKota) return false;
+                          }
 
-                        return true;
-                      }).map(r => (
-                        <option key={r.id} value={r.no_ruas} className="text-slate-900">{r.no_ruas} : {r.nama_jalan === 'Tanpa Nama' ? 'Tanpa Nama' : r.nama_jalan}</option>
-                      ))}
+                          return true;
+                        });
+                        const limited = filtered.slice(0, 200);
+                        return (
+                          <>
+                            {limited.map(r => (
+                              <option key={r.id} value={r.no_ruas} className="text-slate-900">{r.no_ruas} : {r.nama_jalan === 'Tanpa Nama' ? 'Tanpa Nama' : r.nama_jalan}</option>
+                            ))}
+                            {filtered.length > 200 && (
+                              <option disabled className="text-slate-400">--- {filtered.length - 200} ruas lainnya ---</option>
+                            )}
+                          </>
+                        );
+                      })()}
                     </select>
                   </div>
 
@@ -1997,12 +2012,16 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                     })()}
                   </thead>
                   <tbody>
-                    {(!selectedDbYear || !selectedDbRuas) ? (
+                    {dbFilterPengelola === 'all' ? (
                       <tr>
-                        <td colSpan={15} className="py-8 text-center text-slate-500">
-                          Silahkan pilih Tahun dan Ruas di atas terlebih dahulu untuk memuat data koreksi.
-                          <br />
-                          <span className="text-xs opacity-75 mt-2 block">(Data sengaja tidak dimuat otomatis untuk menjaga performa browser)</span>
+                        <td colSpan={15} className="py-12 text-center text-slate-500">
+                          <div className="flex flex-col items-center gap-3">
+                            <Filter size={40} className="text-blue-300" />
+                            <div className="text-base font-bold text-slate-700">Pilih Kewenangan Terlebih Dahulu</div>
+                            <div className="text-xs opacity-75 max-w-md">
+                              Untuk mencegah browser lambat, silakan pilih <b>NASIONAL</b> atau <b>DAERAH</b> pada filter Kewenangan di atas. Jika daerah, pilih juga wilayah spesifik.
+                            </div>
+                          </div>
                         </td>
                       </tr>
                     ) : filteredEditableSegments.length === 0 ? (
