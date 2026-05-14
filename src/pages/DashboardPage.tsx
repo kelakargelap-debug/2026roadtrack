@@ -902,8 +902,9 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
     }).setView([-3.67, 128.20], 13);
     (window as any).L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-    (window as any).L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-      attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+    (window as any).L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
 
     mapRef.current = map;
@@ -985,9 +986,16 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
           ruas.segments.forEach((seg: any, idx: number) => {
             if (!seg) return;
-            const lat = parseFloat(seg.latitude || seg.lat1 || seg.lat);
-            const lon = parseFloat(seg.longitude || seg.lon1 || seg.lon);
+            let lat = parseFloat(seg.latitude || seg.lat1 || seg.lat);
+            let lon = parseFloat(seg.longitude || seg.lon1 || seg.lon);
             if (isNaN(lat) || isNaN(lon) || lat === 0 || lon === 0) return;
+
+            // Auto-swap if user put longitude in latitude column (Indonesia lat is small, lon is large)
+            if (Math.abs(lat) > Math.abs(lon)) {
+              const temp = lat;
+              lat = lon;
+              lon = temp;
+            }
 
             const point: [number, number] = [lat, lon];
             allPoints.push(point);
@@ -999,9 +1007,14 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
             for (let j = idx + 1; j < ruas.segments.length; j++) {
               const nextSeg = ruas.segments[j];
               if (nextSeg) {
-                const nl = parseFloat(nextSeg.latitude || nextSeg.lat1 || nextSeg.lat);
-                const nlo = parseFloat(nextSeg.longitude || nextSeg.lon1 || nextSeg.lon);
+                let nl = parseFloat(nextSeg.latitude || nextSeg.lat1 || nextSeg.lat);
+                let nlo = parseFloat(nextSeg.longitude || nextSeg.lon1 || nextSeg.lon);
                 if (!isNaN(nl) && !isNaN(nlo) && nl !== 0 && nlo !== 0) {
+                  if (Math.abs(nl) > Math.abs(nlo)) {
+                    const temp = nl;
+                    nl = nlo;
+                    nlo = temp;
+                  }
                   nextLat = nl;
                   nextLon = nlo;
                   break;
