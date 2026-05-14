@@ -52,6 +52,8 @@ services:
       - backend
     networks:
       - roadtrack-network
+    volumes:
+      - roadtrack_data:/app/roadtrack.db
 
 networks:
   roadtrack-network:
@@ -59,3 +61,4 @@ networks:
 
 volumes:
   postgres_data:
+  roadtrack_data:

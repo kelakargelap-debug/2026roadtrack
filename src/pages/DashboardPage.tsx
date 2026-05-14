@@ -383,7 +383,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
         
         setUploadProgress(40); // Sending...
         
-        await axios.post('/api/import/save', { data }, {
+        const res = await axios.post('/api/import/save', { data }, {
             timeout: 60000 // 60 seconds timeout for 4000 rows
         });
 
@@ -391,7 +391,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
         setTimeout(() => {
           setIsUploadModalOpen(false);
           setUploadProgress(null);
-          alert(`Berhasil mengunggah ${data.length} baris data!`);
+          alert(`Berhasil mengunggah ${res.data.count} baris data!`);
           fetchData();
         }, 800);
       } catch (error: any) {
