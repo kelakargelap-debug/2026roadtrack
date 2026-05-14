@@ -1111,17 +1111,13 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                               String(r.nama_jalan || r.nama || '').toLowerCase().includes(q);
                             return matchesAuthority && matchesSearch;
                           });
-                          const limited = filtered.slice(0, 200);
                           return (
                             <>
-                              {limited.map(r => (
+                              {filtered.map(r => (
                                 <option key={r.id} value={r.no_ruas || r.id}>
                                   {r.no_ruas || r.id} : {r.nama_jalan === 'Tanpa Nama' ? 'Tanpa Nama' : (r.nama_jalan || r.nama || 'Tanpa Nama')}
                                 </option>
                               ))}
-                              {filtered.length > 200 && (
-                                <option disabled>--- Gunakan pencarian untuk {filtered.length - 200} ruas lainnya ---</option>
-                              )}
                             </>
                           );
                         })()}
@@ -1909,17 +1905,20 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                             if (p !== dbFilterKabupatenKota && k !== dbFilterKabupatenKota) return false;
                           }
 
+                          const q = searchSegQuery.toLowerCase();
+                          if (q) {
+                            const matchSearch = String(r.no_ruas || '').toLowerCase().includes(q) ||
+                                                String(r.nama_jalan || '').toLowerCase().includes(q);
+                            if (!matchSearch) return false;
+                          }
+
                           return true;
                         });
-                        const limited = filtered.slice(0, 200);
                         return (
                           <>
-                            {limited.map(r => (
+                            {filtered.map(r => (
                               <option key={r.id} value={r.no_ruas} className="text-slate-900">{r.no_ruas} : {r.nama_jalan === 'Tanpa Nama' ? 'Tanpa Nama' : r.nama_jalan}</option>
                             ))}
-                            {filtered.length > 200 && (
-                              <option disabled className="text-slate-400">--- {filtered.length - 200} ruas lainnya ---</option>
-                            )}
                           </>
                         );
                       })()}
