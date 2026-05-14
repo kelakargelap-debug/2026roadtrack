@@ -835,6 +835,13 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
             const kabupatenKota = String(ruas.kabupaten_kota || '').toLowerCase();
             const isSelectedRuas = selectedRuasId && (String(ruas.no_ruas) === String(selectedRuasId) || String(ruas.id) === String(selectedRuasId));
 
+            // CRITICAL OPTIMIZATION: 
+            // If a specific road is selected, ONLY render that road. Skip all others to save DOM/Canvas nodes.
+            if (selectedRuasId && !isSelectedRuas) return;
+
+            // If no specific road is selected, require an authority filter to prevent 80k lines rendering at once
+            if (!selectedRuasId && !filterPengelola) return;
+
             if (filterPengelola) {
               if (filterPengelola === 'nasional') {
                  if (pengelola !== 'nasional') return;
@@ -877,7 +884,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                 { 
                   color: color || '#334155', 
                   weight: isSelectedRuas ? 12 : 7,
-                  opacity: selectedRuasId && !isSelectedRuas ? 0.2 : 1,
+                  opacity: 1, // We no longer render unselected roads, so opacity is always 1
                   lineCap: 'round',
                   lineJoin: 'round'
                 }
@@ -1431,6 +1438,21 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                 <div className="bg-white px-6 py-4 rounded-2xl shadow-2xl border border-slate-200 flex flex-col items-center gap-3">
                   <div className="w-10 h-10 border-4 border-slate-200 border-t-[#003B7A] rounded-full animate-spin"></div>
                   <span className="text-xs font-black text-[#003B7A] uppercase tracking-widest">Memproses Peta...</span>
+                </div>
+              </div>
+            )}
+            {!selectedRuasId && !filterPengelola && !isMapLoading && (
+              <div className="absolute inset-0 z-[500] bg-slate-50/80 backdrop-blur-sm flex items-center justify-center pointer-events-none">
+                <div className="bg-white px-8 py-6 rounded-2xl shadow-xl border border-blue-100 flex flex-col items-center gap-4 text-center max-w-md">
+                  <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center text-blue-500 mb-2">
+                    <Filter size={32} />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-[#003B7A] mb-2 uppercase">Peta Terlalu Besar</h3>
+                    <p className="text-sm font-medium text-slate-500">
+                      Untuk mencegah browser lambat/crash karena puluhan ribu data koordinat, silakan <b>Pilih Kewenangan</b> atau <b>Cari Ruas</b> pada panel filter di sebelah kiri untuk menampilkan data.
+                    </p>
+                  </div>
                 </div>
               </div>
             )}
