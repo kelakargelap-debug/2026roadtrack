@@ -985,13 +985,18 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
           let nextLat = lat + 0.0001;
           let nextLon = lon + 0.0001;
-          const nextSeg = ruas.segments[idx + 1];
-          if (nextSeg) {
-            const nl = parseFloat(nextSeg.latitude || nextSeg.lat1 || nextSeg.lat);
-            const nlo = parseFloat(nextSeg.longitude || nextSeg.lon1 || nextSeg.lon);
-            if (!isNaN(nl) && !isNaN(nlo) && nl !== 0 && nlo !== 0) {
-              nextLat = nl;
-              nextLon = nlo;
+          
+          // Cari segmen berikutnya yang memiliki koordinat valid untuk disambungkan
+          for (let j = idx + 1; j < ruas.segments.length; j++) {
+            const nextSeg = ruas.segments[j];
+            if (nextSeg) {
+              const nl = parseFloat(nextSeg.latitude || nextSeg.lat1 || nextSeg.lat);
+              const nlo = parseFloat(nextSeg.longitude || nextSeg.lon1 || nextSeg.lon);
+              if (!isNaN(nl) && !isNaN(nlo) && nl !== 0 && nlo !== 0) {
+                nextLat = nl;
+                nextLon = nlo;
+                break;
+              }
             }
           }
 
