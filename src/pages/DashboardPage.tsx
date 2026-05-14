@@ -208,6 +208,15 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
   const mapRef = useRef<any>(null);
   const mapLayersRef = useRef<any>(null);
 
+  const [showInitialLoading, setShowInitialLoading] = useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowInitialLoading(false);
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, []);
+
   const [ruasData, setRuasData] = useState<any[]>([]);
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const [availableYears, setAvailableYears] = useState<string[]>([]);
@@ -1142,6 +1151,43 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
   return (
     <div className="h-screen w-full flex flex-col bg-[#F5F7FA] font-sans overflow-hidden">
+      <AnimatePresence>
+        {showInitialLoading && (
+          <motion.div
+            key="initial-loader"
+            initial={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.5, ease: "easeInOut" }}
+            className="fixed inset-0 z-[9999] bg-[#003B7A]/60 backdrop-blur-md flex flex-col items-center justify-center"
+          >
+            <div className="w-24 h-24 flex items-center justify-center mb-6 relative">
+              <motion.div 
+                animate={{ rotate: 360 }} 
+                transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
+                className="absolute inset-0 border-4 border-[#003B7A] border-t-[#F5A800] border-r-[#F5A800] rounded-full"
+              />
+              <img src="https://upload.wikimedia.org/wikipedia/commons/c/c6/Logo_Kementerian_Pekerjaan_Umum_Republik_Indonesia.svg" className="h-12 w-auto relative z-10" alt="PU" />
+            </div>
+            <motion.div 
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+              className="text-white text-2xl font-black uppercase tracking-widest mb-2"
+            >
+              RoadTrack
+            </motion.div>
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.4 }}
+              className="text-[#F5A800] text-[10px] font-black tracking-[0.3em] uppercase"
+            >
+              Menyiapkan Dashboard...
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Topbar */}
       <div className="h-14 bg-[#003B7A] text-white flex items-center justify-between px-4 z-20 shadow-md shrink-0">
         <div className="flex items-center gap-3">
