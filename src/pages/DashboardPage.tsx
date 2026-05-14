@@ -37,7 +37,7 @@ import ExcelJS from 'exceljs';
 const IRI_COLORS = {
   'Baik': '#1A7A2E',
   'Sedang': '#92D050',
-  'Sedang Marginal': '#F5C800',
+  'Marginal': '#F5C800',
   'Rusak Ringan': '#E07820',
   'Rusak Berat': '#CC1A1A',
   'Tidak Ada Data': '#CBD5E1'
