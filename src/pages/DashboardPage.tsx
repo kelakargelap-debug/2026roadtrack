@@ -1,17 +1,17 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
 import { TrendDashboard } from '../components/TrendDashboard';
-import { 
-  Map as MapIcon, 
+import {
+  Map as MapIcon,
   BarChart3,
-  TrendingUp, 
-  Upload, 
-  Wrench, 
-  Settings, 
+  TrendingUp,
+  Upload,
+  Wrench,
+  Settings,
   Database,
   Save,
-  ChevronLeft, 
-  ChevronRight, 
+  ChevronLeft,
+  ChevronRight,
   ChevronsLeft,
   ChevronsRight,
   ChevronUp,
@@ -35,12 +35,12 @@ import ExcelJS from 'exceljs';
 
 // --- DESIGN SYSTEM TOKENS ---
 const IRI_COLORS = {
-  'Baik': '#1A7A2E',           
-  'Sedang': '#92D050',         
-  'Sedang Marginal': '#F5C800', 
-  'Rusak Ringan': '#E07820',   
-  'Rusak Berat': '#CC1A1A',    
-  'Tidak Ada Data': '#CBD5E1'    
+  'Baik': '#1A7A2E',
+  'Sedang': '#92D050',
+  'Sedang Marginal': '#F5C800',
+  'Rusak Ringan': '#E07820',
+  'Rusak Berat': '#CC1A1A',
+  'Tidak Ada Data': '#CBD5E1'
 };
 
 const SDI_COLORS = {
@@ -65,7 +65,7 @@ const TREAT_COLORS = {
 
 const getTreatmentConfig = (t: string | undefined | null) => {
   const input = String(t || 'NONE').toUpperCase().trim();
-  
+
   if (input === 'RM' || input.includes('ROUTINE') || input.includes('MAINTENANCE') || input.includes('RUTIN PEMELIHARAAN')) return TREAT_COLORS['RM'];
   if (input === 'RK' || input.includes('KONDISI') || input.includes('RUTIN KONDISI')) return TREAT_COLORS['RK'];
   if (input === 'HLD' || input.includes('HOLDING')) return TREAT_COLORS['HLD'];
@@ -73,7 +73,7 @@ const getTreatmentConfig = (t: string | undefined | null) => {
   if (input === 'MNR' || input.includes('MINOR') || input.includes('REHAB MINOR')) return TREAT_COLORS['MNR'];
   if (input === 'MYR' || input.includes('MAYOR') || input.includes('REHAB MAYOR')) return TREAT_COLORS['MYR'];
   if (input === 'RKN' || input.includes('REKON') || input.includes('REKONSTRUKSI')) return TREAT_COLORS['RKN'];
-  
+
   return TREAT_COLORS['NONE'];
 };
 
@@ -107,7 +107,7 @@ const getIriCategory = (iri: number | undefined | null) => {
 
 const getSdiCategory = (sdi: number | string | undefined | null) => {
   if (sdi === undefined || sdi === null || sdi === "") return 'Tidak Ada Data';
-  
+
   const s = String(sdi).toUpperCase().trim();
   if (s === 'B' || s === 'BAIK') return 'Baik';
   if (s === 'S' || s === 'SEDANG') return 'Sedang';
@@ -123,20 +123,20 @@ const getSdiCategory = (sdi: number | string | undefined | null) => {
   return 'Rusak Berat';
 };
 
-  const getSegmentColor = (ruas: any, segment: any, year: string, mode: string) => {
-    const dataYear = segment[year] || { iri: 0, sdi: 0, treatment: 'NONE' };
-    const pengelola = String(ruas.pengelola || 'nasional').toLowerCase();
-    
-    if (mode === 'iri') {
-      if (pengelola === 'nasional') {
-        return (IRI_COLORS as any)[getIriCategory(dataYear.iri)];
-      } else {
-        return (SDI_COLORS as any)[getSdiCategory(dataYear.sdi)];
-      }
+const getSegmentColor = (ruas: any, segment: any, year: string, mode: string) => {
+  const dataYear = segment[year] || { iri: 0, sdi: 0, treatment: 'NONE' };
+  const pengelola = String(ruas.pengelola || 'nasional').toLowerCase();
+
+  if (mode === 'iri') {
+    if (pengelola === 'nasional') {
+      return (IRI_COLORS as any)[getIriCategory(dataYear.iri)];
     } else {
-      return getTreatmentConfig(dataYear.treatment).bg;
+      return (SDI_COLORS as any)[getSdiCategory(dataYear.sdi)];
     }
-  };
+  } else {
+    return getTreatmentConfig(dataYear.treatment).bg;
+  }
+};
 
 // --- CUSTOM HOOK: LOAD LEAFLET ---
 const useLeaflet = () => {
@@ -147,7 +147,7 @@ const useLeaflet = () => {
       setLoaded(true);
       return;
     }
-    
+
     const link = document.createElement('link');
     link.rel = 'stylesheet';
     link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
@@ -194,17 +194,18 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
   // --- DERIVED DATA FOR SIDEBARS ---
   const anaSegments = useMemo(() => {
+    if (mainView !== 'analytics') return []; // Skip computation when not needed
     let segs: any[] = [];
-    if (!Array.isArray(ruasData)) return segs;
-    ruasData.forEach(ruas => {
+    if (!Array.isArray(filteredRuasData)) return segs;
+    filteredRuasData.forEach(ruas => {
       const pengelola = String(ruas.pengelola || 'nasional').toLowerCase();
-      
+
       // Authority Filter
       if (filterPengelola) {
         if (filterPengelola === 'nasional' && pengelola !== 'nasional') return;
         if (filterPengelola === 'daerah' && pengelola === 'nasional') return;
         if (!['nasional', 'daerah'].includes(filterPengelola)) {
-           if (pengelola !== filterPengelola && String(ruas.kabupaten_kota).toLowerCase() !== filterPengelola) return;
+          if (pengelola !== filterPengelola && String(ruas.kabupaten_kota).toLowerCase() !== filterPengelola) return;
         }
       }
 
@@ -221,10 +222,10 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
       }
     });
     return segs;
-  }, [ruasData, year, filterPengelola]);
+  }, [filteredRuasData, year, filterPengelola, mainView]);
 
   const anaPpks = useMemo(() => Array.from(new Set(anaSegments.map(s => s.ppk))).sort(), [anaSegments]);
-  
+
   const anaRuasOptions = useMemo(() => {
     const map = new Map();
     anaSegments.forEach(s => {
@@ -235,10 +236,11 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
   }, [anaSegments, anaFilterKecamatan]);
 
   const treRuasOptions = useMemo(() => {
+    if (mainView !== 'trend') return []; // Skip computation when not needed
     const map = new Map();
     ruasData.forEach(r => {
       const pengelola = String(r.pengelola || 'nasional').toLowerCase();
-      
+
       // Authority Filter
       if (filterPengelola) {
         if (filterPengelola === 'nasional' && pengelola !== 'nasional') return;
@@ -247,11 +249,11 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
           if (pengelola !== filterPengelola && String(r.kabupaten_kota).toLowerCase() !== filterPengelola) return;
         }
       }
-      
+
       map.set(r.no_ruas, r.nama_jalan === 'Tanpa Nama' ? r.no_ruas : r.nama_jalan);
     });
     return Array.from(map.entries()).map(([no, nama]) => ({ no_ruas: no, nama_jalan: nama })).sort((a, b) => a.no_ruas.localeCompare(b.no_ruas));
-  }, [ruasData, filterPengelola]);
+  }, [ruasData, filterPengelola, mainView]);
 
   const treSegmenOptions = useMemo(() => {
     if (treFilterRuas === 'all') return [];
@@ -281,12 +283,12 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
     if (!selectedDbYear || !selectedDbRuas) return false;
     const q = searchSegQuery.toLowerCase();
     const matchesSearch = (
-      String(s.no_ruas || "").toLowerCase().includes(q) || 
-      String(s.nama_jalan || "").toLowerCase().includes(q) || 
+      String(s.no_ruas || "").toLowerCase().includes(q) ||
+      String(s.nama_jalan || "").toLowerCase().includes(q) ||
       String(s.segment_id || "").toLowerCase().includes(q)
     );
     const matchesRuas = selectedDbRuas === 'all' || s.no_ruas === selectedDbRuas;
-    
+
     // Authority Filter
     const p = String(s.pengelola || 'nasional').toLowerCase();
     const k = String(s.kabupaten_kota || '').toLowerCase();
@@ -324,9 +326,9 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
       const res = await axios.get('/api/ruas/list');
       const { ruas, availableYears: years } = res.data;
       setRuasData(ruas);
-      
+
       if (years && years.length > 0) {
-        const sortedYears = [...years].sort((a: string, b: string) => 
+        const sortedYears = [...years].sort((a: string, b: string) =>
           b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' })
         );
         setAvailableYears(sortedYears);
@@ -390,20 +392,20 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
         const data = XLSX.utils.sheet_to_json(ws);
-        
+
         if (!Array.isArray(data) || data.length === 0) {
           throw new Error("File Excel kosong atau tidak terbaca.");
         }
 
         setUploadProgress(20); // Data parsed
-        
+
         // Use a timeout for responsiveness
         await new Promise(r => setTimeout(r, 100));
-        
+
         setUploadProgress(40); // Sending...
-        
+
         const res = await axios.post('/api/import/save', { data }, {
-            timeout: 60000 // 60 seconds timeout for 4000 rows
+          timeout: 60000 // 60 seconds timeout for 4000 rows
         });
 
         setUploadProgress(100);
@@ -436,7 +438,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
   const getSdiBg = (v: number | string | undefined | null) => {
     if (v === undefined || v === null || v === "") return { bg: '#CBD5E1', fg: '#64748B' };
-    
+
     const s = String(v).toUpperCase().trim();
     if (s === 'B' || s === 'BAIK') return { bg: '#1A7A2E', fg: '#fff' };
     if (s === 'S' || s === 'SEDANG') return { bg: '#92D050', fg: '#333' };
@@ -463,7 +465,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
           const data = res.data;
           const flattened = data.flatMap((r: any) => (r.segments || []).map((s: any) => ({
             ...s,
-            db_id: s.id, 
+            db_id: s.id,
             no_ruas: r.no_ruas,
             nama_jalan: r.nama_jalan,
             ppk: r.ppk,
@@ -533,7 +535,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
         }));
 
       await axios.post('/api/segmen/update-batch', { updates: segmentsToSave });
-      
+
       alert(`Berhasil menyimpan ${dirtyIds.size} perubahan!`);
       setDirtyIds(new Set());
       fetchData();
@@ -614,7 +616,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
   const handleDownloadRuasExcel = async () => {
     if (!selectedRuas) return;
-    
+
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Stripmap Data');
 
@@ -663,9 +665,9 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
       availableYears.forEach(y => {
         const dataYear = seg[y] || { iri: 0, sdi: 0, treatment: 'NONE' };
         if (isNasional) {
-            rowData[`iri_${y}`] = dataYear.iri || 0;
+          rowData[`iri_${y}`] = dataYear.iri || 0;
         } else {
-            rowData[`sdi_${y}`] = dataYear.sdi || 0;
+          rowData[`sdi_${y}`] = dataYear.sdi || 0;
         }
         rowData[`treatment_${y}`] = dataYear.treatment || 'NONE';
       });
@@ -677,12 +679,12 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
         const condKey = isNasional ? `iri_${y}` : `sdi_${y}`;
         const val = rowData[condKey];
         const cell = row.getCell(condKey);
-        
+
         if (val !== undefined) {
           const cfg = isNasional ? getIriBg(val) : getSdiBg(val);
           const argbBg = 'FF' + cfg.bg.replace('#', '').toUpperCase();
           const argbFg = (cfg.fg === '#fff' || cfg.fg === 'fff' || cfg.fg === '#FFFFFF') ? 'FFFFFFFF' : 'FF333333';
-          
+
           cell.fill = {
             type: 'pattern',
             pattern: 'solid',
@@ -703,7 +705,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
           const cfg = getTreatmentConfig(treatVal);
           const argbBg = 'FF' + cfg.bg.replace('#', '').toUpperCase();
           const argbFg = (cfg.fg === '#fff' || cfg.fg === 'fff' || cfg.fg === '#FFFFFF') ? 'FFFFFFFF' : 'FF333333';
-          
+
           cellTrt.fill = {
             type: 'pattern',
             pattern: 'solid',
@@ -769,7 +771,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
     if (!isLeafletLoaded || mapRef.current) return;
 
     // Default center Ambon
-    const map = (window as any).L.map('gis-map', { 
+    const map = (window as any).L.map('gis-map', {
       zoomControl: false,
       preferCanvas: true,
       renderer: (window as any).L.canvas()
@@ -822,7 +824,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
         const getTooltipContent = (seg: any, yearData: any) => {
           const conditionLabel = isNasional ? 'IRI' : 'SDI';
           const conditionValRaw = isNasional ? (yearData.iri || 0) : (yearData.sdi || 0);
-          const conditionValDisplay = (typeof conditionValRaw === 'number' && !isNaN(conditionValRaw) && conditionValRaw > 0) 
+          const conditionValDisplay = (typeof conditionValRaw === 'number' && !isNaN(conditionValRaw) && conditionValRaw > 0)
             ? conditionValDisplayFix(conditionValRaw, isNasional)
             : String(conditionValRaw || '-');
           const kat = isNasional ? getIriCategory(yearData.iri) : getSdiCategory(yearData.sdi);
@@ -915,12 +917,12 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
     "kota tual"
   ];
 
-  const localAuthorities = Array.from(new Set([
+  const localAuthorities = useMemo(() => Array.from(new Set([
     ...MALUKU_AUTHORITIES,
     ...ruasData.map(r => String(r.pengelola || 'nasional').toLowerCase())
   ]))
     .filter(p => p !== 'nasional' && p !== 'daerah')
-    .sort();
+    .sort(), [ruasData]);
 
   return (
     <div className="h-screen w-full flex flex-col bg-[#F5F7FA] font-sans overflow-hidden">
@@ -928,10 +930,10 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
       <div className="h-14 bg-[#003B7A] text-white flex items-center justify-between px-4 z-20 shadow-md shrink-0">
         <div className="flex items-center gap-3">
           <div className="">
-            <img 
-              src="https://upload.wikimedia.org/wikipedia/commons/c/c6/Logo_Kementerian_Pekerjaan_Umum_Republik_Indonesia.svg" 
-              alt="PU PR" 
-              className="h-8 w-auto block" 
+            <img
+              src="https://upload.wikimedia.org/wikipedia/commons/c/c6/Logo_Kementerian_Pekerjaan_Umum_Republik_Indonesia.svg"
+              alt="PU PR"
+              className="h-8 w-auto block"
             />
           </div>
           <div className="flex flex-col">
@@ -941,27 +943,27 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
         </div>
         <div className="flex items-center gap-4">
           <div className="flex bg-blue-900 rounded p-1">
-            <button 
-              onClick={() => setMainView('map')} 
+            <button
+              onClick={() => setMainView('map')}
               className={`px-3 py-1 font-bold text-xs rounded transition-colors ${mainView === 'map' ? 'bg-white text-blue-900 shadow' : 'text-white hover:bg-blue-800'}`}
             >
               Peta Utama
             </button>
-            <button 
-              onClick={() => setMainView('analytics')} 
+            <button
+              onClick={() => setMainView('analytics')}
               className={`px-3 py-1 font-bold text-xs rounded transition-colors ${mainView === 'analytics' ? 'bg-white text-blue-900 shadow' : 'text-white hover:bg-blue-800'}`}
             >
               Analitik & Laporan
             </button>
-            <button 
-              onClick={() => setMainView('trend')} 
+            <button
+              onClick={() => setMainView('trend')}
               className={`px-3 py-1 font-bold text-xs rounded transition-colors flex items-center gap-1 ${mainView === 'trend' ? 'bg-white text-blue-900 shadow' : 'text-white hover:bg-blue-800'}`}
             >
               <TrendingUp size={14} /> Prediksi Tren
             </button>
           </div>
           <div className="flex items-center gap-2 text-sm bg-blue-800/50 px-3 py-1.5 rounded-full border border-blue-700">
-            <User size={16} className="text-[#F5A800]"/>
+            <User size={16} className="text-[#F5A800]" />
             <span>Admin Teknis</span>
           </div>
           <button onClick={() => setView('landing')} className="hover:text-[#F5A800] transition">
@@ -972,7 +974,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
       <div className="flex flex-1 relative overflow-hidden">
         {/* Unified Sidebar for all views */}
-        <motion.div 
+        <motion.div
           animate={{ width: sidebarExpanded ? 320 : 56 }}
           className={`relative z-[1000] bg-white border-r shadow-sm transition-all duration-300 flex flex-col shrink-0`}
         >
@@ -989,7 +991,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
             </div>
 
             {sidebarExpanded && (
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 className="p-4 space-y-6"
@@ -1028,12 +1030,12 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                       <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Cari Ruas</label>
                       <div className="relative">
                         <Search size={16} className="absolute left-3 top-2.5 text-slate-400" />
-                        <input 
-                          type="text" 
-                          placeholder="Ketik minimal 2 huruf..." 
+                        <input
+                          type="text"
+                          placeholder="Ketik minimal 2 huruf..."
                           value={searchRuasSidebar}
                           onChange={(e) => setSearchRuasSidebar(e.target.value)}
-                          className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-md text-sm focus:outline-none focus:border-[#003B7A] focus:ring-2 focus:ring-blue-100 transition-all font-semibold" 
+                          className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-md text-sm focus:outline-none focus:border-[#003B7A] focus:ring-2 focus:ring-blue-100 transition-all font-semibold"
                         />
                       </div>
 
@@ -1064,11 +1066,10 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                                 <div className="text-[9px] font-black text-blue-500 uppercase">
                                   {r.no_ruas || r.id}
                                 </div>
-                                <div className={`text-[8px] font-black px-1 rounded border ${
-                                  String(r.pengelola).toLowerCase() === 'nasional' 
-                                    ? 'bg-orange-50 text-orange-600 border-orange-100' 
+                                <div className={`text-[8px] font-black px-1 rounded border ${String(r.pengelola).toLowerCase() === 'nasional'
+                                    ? 'bg-orange-50 text-orange-600 border-orange-100'
                                     : 'bg-blue-50 text-blue-600 border-blue-100'
-                                }`}>
+                                  }`}>
                                   {String(r.pengelola).toUpperCase()}
                                 </div>
                               </div>
@@ -1083,46 +1084,57 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
                     <div>
                       <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Daftar Ruas</label>
-                      <select 
+                      <select
                         value={selectedRuasId || ""}
                         onChange={(e) => setSelectedRuasId(e.target.value || null)}
                         className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-[#003B7A] focus:ring-2 focus:ring-blue-100 text-slate-700 font-semibold shadow-sm cursor-pointer"
                       >
                         <option value="">-- Pilih Ruas Jalan --</option>
-                        {ruasData.filter(r => {
-                          const p = String(r.pengelola || 'nasional').toLowerCase();
-                          const k = String(r.kabupaten_kota || '').toLowerCase();
-                          const q = searchRuasSidebar.toLowerCase();
-                          let matchesAuthority = true;
-                          if (filterPengelola === 'nasional') {
-                            matchesAuthority = p === 'nasional';
-                          } else if (filterPengelola === 'daerah') {
-                            matchesAuthority = p !== 'nasional';
-                          } else if (filterPengelola) {
-                            matchesAuthority = p === filterPengelola || k === filterPengelola;
-                          }
-                          const matchesSearch = q === '' || 
-                            String(r.no_ruas || '').toLowerCase().includes(q) || 
-                            String(r.nama_jalan || r.nama || '').toLowerCase().includes(q);
-                          return matchesAuthority && matchesSearch;
-                        }).map(r => (
-                          <option key={r.id} value={r.no_ruas || r.id}>
-                            {r.no_ruas || r.id} : {r.nama_jalan === 'Tanpa Nama' ? 'Tanpa Nama' : (r.nama_jalan || r.nama || 'Tanpa Nama')}
-                          </option>
-                        ))}
+                        {(() => {
+                          const filtered = ruasData.filter(r => {
+                            const p = String(r.pengelola || 'nasional').toLowerCase();
+                            const k = String(r.kabupaten_kota || '').toLowerCase();
+                            const q = searchRuasSidebar.toLowerCase();
+                            let matchesAuthority = true;
+                            if (filterPengelola === 'nasional') {
+                              matchesAuthority = p === 'nasional';
+                            } else if (filterPengelola === 'daerah') {
+                              matchesAuthority = p !== 'nasional';
+                            } else if (filterPengelola) {
+                              matchesAuthority = p === filterPengelola || k === filterPengelola;
+                            }
+                            const matchesSearch = q === '' ||
+                              String(r.no_ruas || '').toLowerCase().includes(q) ||
+                              String(r.nama_jalan || r.nama || '').toLowerCase().includes(q);
+                            return matchesAuthority && matchesSearch;
+                          });
+                          const limited = filtered.slice(0, 200);
+                          return (
+                            <>
+                              {limited.map(r => (
+                                <option key={r.id} value={r.no_ruas || r.id}>
+                                  {r.no_ruas || r.id} : {r.nama_jalan === 'Tanpa Nama' ? 'Tanpa Nama' : (r.nama_jalan || r.nama || 'Tanpa Nama')}
+                                </option>
+                              ))}
+                              {filtered.length > 200 && (
+                                <option disabled>--- Gunakan pencarian untuk {filtered.length - 200} ruas lainnya ---</option>
+                              )}
+                            </>
+                          );
+                        })()}
                       </select>
                     </div>
 
                     <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
                       <label className="text-xs font-bold text-slate-500 uppercase mb-3 block">Mode Tampilan</label>
                       <div className="flex bg-white rounded-md p-1 border border-slate-200">
-                        <button 
+                        <button
                           onClick={() => setMode('iri')}
                           className={`flex-1 text-[10px] py-1.5 rounded font-black uppercase transition ${mode === 'iri' ? 'bg-[#003B7A] text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}
                         >
                           {filterPengelola === 'nasional' ? 'Kondisi IRI' : (!filterPengelola ? 'Kondisi (IRI/SDI)' : 'Kondisi SDI')}
                         </button>
-                        <button 
+                        <button
                           onClick={() => setMode('treatment')}
                           className={`flex-1 text-[10px] py-1.5 rounded font-black uppercase transition ${mode === 'treatment' ? 'bg-[#003B7A] text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}
                         >
@@ -1157,7 +1169,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                         </div>
                       ) : (
                         <div className="grid grid-cols-1 gap-1.5">
-                          {Object.entries(TREAT_COLORS).filter(([k]) => k!=='NONE' && k !== 'ROUTINE').map(([label, cfg]) => (
+                          {Object.entries(TREAT_COLORS).filter(([k]) => k !== 'NONE' && k !== 'ROUTINE').map(([label, cfg]) => (
                             <div key={label} className="flex items-center gap-2 group cursor-help" title={cfg.label}>
                               <span className="w-4 h-4 rounded border border-black/10 flex-shrink-0" style={{ backgroundColor: cfg.bg }}></span>
                               <span className="text-slate-600 text-[10px] font-bold uppercase w-8">{label}</span>
@@ -1177,12 +1189,12 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                       <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Pencarian</label>
                       <div className="relative">
                         <Search size={16} className="absolute left-3 top-2.5 text-slate-400" />
-                        <input 
-                          type="text" 
-                          placeholder="Cari ruas/segmen..." 
+                        <input
+                          type="text"
+                          placeholder="Cari ruas/segmen..."
                           value={anaSearchQuery}
                           onChange={e => setAnaSearchQuery(e.target.value)}
-                          className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-md text-sm focus:outline-none focus:border-[#003B7A] focus:ring-2 focus:ring-blue-100 transition-all font-semibold shadow-sm" 
+                          className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-md text-sm focus:outline-none focus:border-[#003B7A] focus:ring-2 focus:ring-blue-100 transition-all font-semibold shadow-sm"
                         />
                       </div>
                     </div>
@@ -1190,9 +1202,9 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                     <div className="space-y-4">
                       <div>
                         <label className="text-xs font-black text-slate-400 uppercase mb-2 block">Filter Kewenangan</label>
-                        <select 
-                          value={filterPengelola} 
-                          onChange={e => setFilterPengelola(e.target.value)} 
+                        <select
+                          value={filterPengelola}
+                          onChange={e => setFilterPengelola(e.target.value)}
                           className="w-full text-xs py-2.5 px-3 bg-white border border-slate-200 rounded-lg font-black text-[#003B7A] uppercase tracking-wider shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all cursor-pointer"
                         >
                           <option value="">-- PILIH KEWENANGAN --</option>
@@ -1211,9 +1223,9 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
                       <div>
                         <label className="text-xs font-black text-slate-400 uppercase mb-2 block">Wilayah / PPK</label>
-                        <select 
-                          value={anaFilterKecamatan} 
-                          onChange={e => setAnaFilterKecamatan(e.target.value)} 
+                        <select
+                          value={anaFilterKecamatan}
+                          onChange={e => setAnaFilterKecamatan(e.target.value)}
                           className="w-full text-xs py-2.5 px-3 bg-white border border-slate-200 rounded-lg font-bold text-slate-600 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all cursor-pointer"
                         >
                           <option value="all">Semua Wilayah</option>
@@ -1223,9 +1235,9 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
                       <div>
                         <label className="text-xs font-black text-slate-400 uppercase mb-2 block">Pilih Ruas</label>
-                        <select 
-                          value={anaFilterRuas} 
-                          onChange={e => setAnaFilterRuas(e.target.value)} 
+                        <select
+                          value={anaFilterRuas}
+                          onChange={e => setAnaFilterRuas(e.target.value)}
                           className="w-full text-xs py-2.5 px-3 bg-white border border-slate-200 rounded-lg font-bold text-slate-600 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all cursor-pointer"
                         >
                           <option value="all">Semua Ruas</option>
@@ -1235,9 +1247,9 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
                       <div>
                         <label className="text-xs font-black text-slate-400 uppercase mb-2 block">Kondisi</label>
-                        <select 
-                          value={anaFilterStatus} 
-                          onChange={e => setAnaFilterStatus(e.target.value)} 
+                        <select
+                          value={anaFilterStatus}
+                          onChange={e => setAnaFilterStatus(e.target.value)}
                           className="w-full text-xs py-2.5 px-3 bg-white border border-slate-200 rounded-lg font-bold text-slate-600 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all cursor-pointer"
                         >
                           <option value="all">Semua Kondisi</option>
@@ -1268,9 +1280,9 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                     <div className="space-y-4">
                       <div>
                         <label className="text-xs font-black text-slate-400 uppercase mb-2 block">Filter Kewenangan</label>
-                        <select 
-                          value={filterPengelola} 
-                          onChange={e => setFilterPengelola(e.target.value)} 
+                        <select
+                          value={filterPengelola}
+                          onChange={e => setFilterPengelola(e.target.value)}
                           className="w-full text-xs py-2.5 px-3 bg-white border border-slate-200 rounded-lg font-black text-[#003B7A] uppercase tracking-wider shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all cursor-pointer"
                         >
                           <option value="">-- PILIH KEWENANGAN --</option>
@@ -1289,9 +1301,9 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
                       <div>
                         <label className="text-xs font-black text-slate-400 uppercase mb-2 block">Filter Ruas</label>
-                        <select 
-                          value={treFilterRuas} 
-                          onChange={e => { setTreFilterRuas(e.target.value); setTreFilterSegmen('all'); }} 
+                        <select
+                          value={treFilterRuas}
+                          onChange={e => { setTreFilterRuas(e.target.value); setTreFilterSegmen('all'); }}
                           className="w-full text-xs py-2.5 px-3 bg-white border border-slate-200 rounded-lg font-bold text-[#003B7A] shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all cursor-pointer"
                         >
                           <option value="all">Semua Ruas</option>
@@ -1301,9 +1313,9 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
                       <div>
                         <label className="text-xs font-black text-slate-400 uppercase mb-2 block">Pilih Segmen</label>
-                        <select 
-                          value={treFilterSegmen} 
-                          onChange={e => setTreFilterSegmen(e.target.value)} 
+                        <select
+                          value={treFilterSegmen}
+                          onChange={e => setTreFilterSegmen(e.target.value)}
                           disabled={treFilterRuas === 'all'}
                           className="w-full text-xs py-2.5 px-3 bg-white border border-slate-200 rounded-lg font-bold text-slate-600 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all cursor-pointer disabled:opacity-50"
                         >
@@ -1314,9 +1326,9 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
                       <div>
                         <label className="text-xs font-black text-slate-400 uppercase mb-2 block">Status Kondisi</label>
-                        <select 
-                          value={treFilterKondisi} 
-                          onChange={e => setTreFilterKondisi(e.target.value)} 
+                        <select
+                          value={treFilterKondisi}
+                          onChange={e => setTreFilterKondisi(e.target.value)}
                           className="w-full text-xs py-2.5 px-3 bg-white border border-slate-200 rounded-lg font-bold text-slate-600 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all cursor-pointer"
                         >
                           <option value="all">Semua Kondisi</option>
@@ -1329,9 +1341,9 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
                       <div>
                         <label className="text-xs font-black text-slate-400 uppercase mb-2 block">Tren Laju Kerusakan</label>
-                        <select 
-                          value={treFilterTren} 
-                          onChange={e => setTreFilterTren(e.target.value)} 
+                        <select
+                          value={treFilterTren}
+                          onChange={e => setTreFilterTren(e.target.value)}
                           className="w-full text-xs py-2.5 px-3 bg-white border border-slate-200 rounded-lg font-bold text-slate-600 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all cursor-pointer"
                         >
                           <option value="all">Semua Tren</option>
@@ -1343,9 +1355,9 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
                       <div>
                         <label className="text-xs font-black text-slate-400 uppercase mb-2 block">Jenis Penanganan</label>
-                        <select 
-                          value={treFilterTreatment} 
-                          onChange={e => setTreFilterTreatment(e.target.value)} 
+                        <select
+                          value={treFilterTreatment}
+                          onChange={e => setTreFilterTreatment(e.target.value)}
                           className="w-full text-xs py-2.5 px-3 bg-white border border-slate-200 rounded-lg font-bold text-slate-600 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all cursor-pointer"
                         >
                           <option value="all">Semua Treatment</option>
@@ -1375,16 +1387,16 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
               </motion.div>
             )}
           </div>
-          
+
           {/* Sidebar Footer */}
           <div className={`border-t border-slate-200 flex flex-col ${!sidebarExpanded && 'items-center'}`}>
-            <button 
+            <button
               onClick={() => setIsUploadModalOpen(true)}
               className="p-3 text-slate-500 hover:bg-slate-50 flex items-center gap-3 transition w-full text-left"
             >
               <Upload size={18} /> {sidebarExpanded && <span className="text-sm font-medium">Upload Excel</span>}
             </button>
-            <button 
+            <button
               onClick={() => setIsSettingsModalOpen(true)}
               className="p-3 text-slate-500 hover:bg-slate-50 flex items-center gap-3 transition w-full text-left"
             >
@@ -1422,45 +1434,45 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
             )}
             <div id="gis-map" className="w-full h-full z-0"></div>
 
-          {/* Unified Map Controls */}
-          <div className="absolute top-4 right-4 z-[400] flex flex-col gap-2 pointer-events-none">
-            <div className="bg-white rounded-lg shadow-xl border border-slate-200 p-2 min-w-[140px] pointer-events-auto">
-              <label className="text-[10px] font-black text-slate-400 uppercase px-2 mb-1 block">Tahun Data</label>
-              <select
-                value={year}
-                onChange={(e) => setYear(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-100 rounded text-xs font-bold text-[#003B7A] focus:ring-0 cursor-pointer py-1.5 px-2"
-              >
-                {availableYears.map(y => (
-                  <option key={y} value={y}>{y}</option>
-                ))}
-              </select>
-            </div>
+            {/* Unified Map Controls */}
+            <div className="absolute top-4 right-4 z-[400] flex flex-col gap-2 pointer-events-none">
+              <div className="bg-white rounded-lg shadow-xl border border-slate-200 p-2 min-w-[140px] pointer-events-auto">
+                <label className="text-[10px] font-black text-slate-400 uppercase px-2 mb-1 block">Tahun Data</label>
+                <select
+                  value={year}
+                  onChange={(e) => setYear(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-100 rounded text-xs font-bold text-[#003B7A] focus:ring-0 cursor-pointer py-1.5 px-2"
+                >
+                  {availableYears.map(y => (
+                    <option key={y} value={y}>{y}</option>
+                  ))}
+                </select>
+              </div>
 
-            <div className="bg-white rounded-lg shadow-xl border border-slate-200 p-1 flex flex-col gap-1 pointer-events-auto overflow-hidden">
-               <div className="flex items-center gap-0.5">
-                  <button 
+              <div className="bg-white rounded-lg shadow-xl border border-slate-200 p-1 flex flex-col gap-1 pointer-events-auto overflow-hidden">
+                <div className="flex items-center gap-0.5">
+                  <button
                     onClick={() => setFilterPengelola('')}
                     className={`flex-1 px-3 py-1.5 rounded text-[9px] font-black uppercase transition-all ${!filterPengelola ? 'bg-[#003B7A] text-white shadow-md' : 'text-slate-400 hover:bg-slate-50'}`}
                   >
                     Semua
                   </button>
-                  <button 
+                  <button
                     onClick={() => setFilterPengelola('nasional')}
                     className={`flex-1 px-3 py-1.5 rounded text-[9px] font-black uppercase transition-all ${filterPengelola === 'nasional' ? 'bg-[#003B7A] text-white shadow-md' : 'text-slate-400 hover:bg-slate-50'}`}
                   >
                     Nasional
                   </button>
-                  <button 
+                  <button
                     onClick={() => setFilterPengelola('daerah')}
                     className={`flex-1 px-3 py-1.5 rounded text-[9px] font-black uppercase transition-all ${['daerah', 'provinsi', 'kabupaten', 'kota'].includes(filterPengelola) ? 'bg-[#003B7A] text-white shadow-md' : 'text-slate-400 hover:bg-slate-50'}`}
                   >
                     Daerah
                   </button>
-               </div>
-               
-               {['daerah', 'provinsi', 'kabupaten', 'kota'].includes(filterPengelola) || localAuthorities.includes(filterPengelola) ? (
-                 <div className="border-t border-slate-100 p-1 animate-in fade-in slide-in-from-top-1 duration-200">
+                </div>
+
+                {['daerah', 'provinsi', 'kabupaten', 'kota'].includes(filterPengelola) || localAuthorities.includes(filterPengelola) ? (
+                  <div className="border-t border-slate-100 p-1 animate-in fade-in slide-in-from-top-1 duration-200">
                     <select
                       value={['provinsi', 'kabupaten', 'kota'].includes(filterPengelola) || localAuthorities.includes(filterPengelola) ? filterPengelola : 'daerah'}
                       onChange={(e) => setFilterPengelola(e.target.value as any)}
@@ -1471,27 +1483,27 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                         <option key={p} value={p}>{p.toUpperCase()}</option>
                       ))}
                     </select>
-                 </div>
-               ) : null}
+                  </div>
+                ) : null}
+              </div>
             </div>
-          </div>
 
-          {/* Stripmap Bottom Panel */}
-          <AnimatePresence>
-            {selectedRuasId && (
-              <motion.div 
-                initial={{ y: '100%' }}
-                animate={{ 
-                  y: 0,
-                  height: isStripmapExpanded ? 'auto' : '68px',
-                  maxHeight: isStripmapExpanded ? '60vh' : '68px'
-                }}
-                exit={{ y: '100%' }}
-                className={`absolute bottom-0 left-0 right-0 z-[500] bg-white shadow-[0_-4px_32px_rgba(0,0,0,0.15)] border-t-2 border-[#003B7A] overflow-hidden flex flex-col transition-all duration-300`}
-              >
-                {selectedRuas && (
-                  <>
-                    <style>{`
+            {/* Stripmap Bottom Panel */}
+            <AnimatePresence>
+              {selectedRuasId && (
+                <motion.div
+                  initial={{ y: '100%' }}
+                  animate={{
+                    y: 0,
+                    height: isStripmapExpanded ? 'auto' : '68px',
+                    maxHeight: isStripmapExpanded ? '60vh' : '68px'
+                  }}
+                  exit={{ y: '100%' }}
+                  className={`absolute bottom-0 left-0 right-0 z-[500] bg-white shadow-[0_-4px_32px_rgba(0,0,0,0.15)] border-t-2 border-[#003B7A] overflow-hidden flex flex-col transition-all duration-300`}
+                >
+                  {selectedRuas && (
+                    <>
+                      <style>{`
                       .custom-stripmap-scrollbar::-webkit-scrollbar {
                         height: 8px;
                         width: 8px;
@@ -1510,200 +1522,200 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                         writing-mode: vertical-lr;
                       }
                     `}</style>
-                    {/* Header / Toggle Handle */}
-                    <div 
-                      onClick={() => setIsStripmapExpanded(!isStripmapExpanded)}
-                      className="p-3 flex justify-between items-center bg-white cursor-pointer hover:bg-slate-50 transition-colors shrink-0 group"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className="bg-[#003B7A] text-white px-3 py-1 rounded text-[10px] font-black uppercase tracking-wider">
-                          Stripmap
-                        </div>
-                        <div className="flex flex-col">
-                          <h3 className="font-black text-sm text-slate-800 leading-none">{selectedRuas.nama_jalan || selectedRuas.nama}</h3>
-                          <span className="text-[10px] text-slate-400 font-bold uppercase mt-1">Ruas {selectedRuas.no_ruas || selectedRuas.id} • {selectedRuas.ppk}</span>
-                        </div>
-                      </div>
-
-                      <div className="flex gap-4 items-center">
-                        <div className="hidden md:flex gap-4">
-                           {Object.entries(TREAT_COLORS).filter(([k]) => k !== 'NONE' && k !== 'RM').slice(0, 4).map(([k, cfg]) => (
-                             <div key={k} className="flex items-center gap-1.5 opacity-60 group-hover:opacity-100 transition">
-                               <div className="w-3 h-1.5 rounded-full" style={{ background: cfg.bg }}></div>
-                               <span className="text-[9px] font-black text-slate-500 uppercase">{k}</span>
-                             </div>
-                           ))}
-                        </div>
-                        
-                        <div className="h-6 w-px bg-slate-200 mx-2"></div>
-
-                        <div className="flex items-center gap-2">
-                          <button className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 text-[#003B7A] text-[10px] font-bold border border-blue-100 hover:bg-blue-100 transition whitespace-nowrap">
-                            {isStripmapExpanded ? 'Tutup Detail' : 'Buka Detail Stripmap'}
-                            {isStripmapExpanded ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
-                          </button>
-                          
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedRuasId(null);
-                            }}
-                            className="text-slate-300 hover:text-red-500 transition p-1"
-                          >
-                            <X size={20} />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Table Content */}
-                    <div className={`flex-1 overflow-auto bg-slate-50 transition-opacity duration-300 ${isStripmapExpanded ? "opacity-100" : "opacity-0 pointer-events-none"}`}>
-                      <div className="p-4 space-y-8 custom-stripmap-scrollbar">
-                        {(() => {
-                          const allSegments = selectedRuas.segments || [];
-                          const chunkSize = 40; // 4km sections (assuming 100m segments)
-                          const chunks = [];
-                          for (let i = 0; i < allSegments.length; i += chunkSize) {
-                            chunks.push(allSegments.slice(i, i + chunkSize));
-                          }
-
-                          return chunks.map((chunk, chunkIdx) => (
-                            <div key={`chunk-${chunkIdx}`} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                              <div className="px-4 py-2 bg-slate-50 border-b flex justify-between items-center">
-                                <span className="text-[10px] font-black text-[#003B7A] uppercase tracking-widest">
-                                  Seksi {chunkIdx + 1} | {formatSTA(chunk[0].sta_awal)} - {formatSTA(chunk[chunk.length - 1].sta_akhir)}
-                                </span>
-                              </div>
-                              <div className="overflow-hidden">
-                                <table className="w-full border-collapse table-fixed border-hidden">
-                                  <thead>
-                                    <tr>
-                                      <th className="w-16 sticky left-0 z-30 bg-white border-r-2 border-slate-200 p-1 text-[9px] font-black uppercase text-slate-400 text-right">STA</th>
-                                      {chunk.map((seg: any) => {
-                                        const km = Math.floor(seg.sta_awal / 1000);
-                                        const m = seg.sta_awal % 1000;
-                                        const mStr = String(m).padStart(3, "0");
-                                        return (
-                                          <th key={seg.id} className="border bg-slate-50 p-0 text-center">
-                                            <div className="font-black text-[8px] text-[#003B7A] h-12 flex items-center justify-center [writing-mode:vertical-lr] rotate-180 mx-auto">
-                                              {km}+{mStr}
-                                            </div>
-                                          </th>
-                                        );
-                                      })}
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {availableYears.map((y) => (
-                                      <React.Fragment key={`rows-${chunkIdx}-${y}`}>
-                                        {/* Condition Row (IRI or SDI) */}
-                                        {mode === 'iri' && (
-                                          <tr className="group/row">
-                                            <td className="sticky left-0 z-30 border bg-white p-1 text-[8px] font-black text-slate-400 text-right whitespace-nowrap border-r-2 border-slate-200 group-hover/row:bg-blue-50 transition border-b-0 uppercase">
-                                              {y} {String(selectedRuas.pengelola || 'nasional').toLowerCase() === 'nasional' ? '(IRI)' : '(SDI)'}
-                                            </td>
-                                            {chunk.map((seg: any) => {
-                                              const pengelola = String(selectedRuas.pengelola || 'nasional').toLowerCase();
-                                              const isNasional = pengelola === 'nasional';
-                                              const val = isNasional ? (seg[y]?.iri || 0) : (seg[y]?.sdi || 0);
-                                              const cfg = isNasional ? getIriBg(val) : getSdiBg(val);
-                                              const label = isNasional 
-                                                ? (typeof val === 'number' ? val.toFixed(1).replace(".", ",") : val) 
-                                                : (typeof val === 'number' ? Math.round(val) : val);
-                                              
-                                              return (
-                                                <td 
-                                                  key={`cond-${y}-${seg.id}`} 
-                                                  className="border border-slate-200 p-0 text-center font-mono text-[7px] font-black transition-all hover:scale-110 hover:z-50 hover:shadow-lg cursor-default h-6"
-                                                  style={{ backgroundColor: cfg.bg, color: cfg.fg }}
-                                                  title={`STA ${formatSTA(seg.sta_awal)} | ${isNasional ? 'IRI' : 'SDI'} ${y}: ${val}`}
-                                                >
-                                                  {val && val !== 0 && val !== "0" ? label : ""}
-                                                </td>
-                                              );
-                                            })}
-                                          </tr>
-                                        )}
-                                        {/* Treatment Row */}
-                                        {mode === 'treatment' && (
-                                          <tr className="group/row">
-                                            <td className="sticky left-0 z-30 border bg-white p-1 text-[7px] font-black text-slate-400 text-right whitespace-nowrap border-r-2 border-slate-200 group-hover/row:bg-blue-50 transition">
-                                              {y} (TRT)
-                                            </td>
-                                            {chunk.map((seg: any) => {
-                                              const treatValue = seg[y]?.treatment;
-                                              const cfg = getTreatmentConfig(treatValue);
-                                              return (
-                                                <td 
-                                                  key={`trt-${y}-${seg.id}`} 
-                                                  className="border border-slate-200 p-0 text-center font-mono text-[6px] font-black transition-all hover:scale-110 hover:z-50 cursor-default h-6"
-                                                  style={{ backgroundColor: cfg.bg, color: cfg.fg }}
-                                                  title={`STA ${formatSTA(seg.sta_awal)} | Treatment ${y}: ${treatValue || 'NONE'}`}
-                                                >
-                                                  {treatValue && treatValue !== 'NONE' ? treatValue : ""}
-                                                </td>
-                                              );
-                                            })}
-                                          </tr>
-                                        )}
-                                      </React.Fragment>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            </div>
-                          ));
-                        })()}
-                      </div>
-
-                      {/* Legends Sub-Footer */}
-                      <div className="sticky bottom-0 left-0 right-0 p-3 bg-white border-t flex justify-between items-center px-6">
-                        <div className="flex gap-8 items-center">
-                          <div className="flex items-center gap-3">
-                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Kondisi:</span>
-                            <div className="flex gap-4">
-                              <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-[#1A7A2E]"></div><span className="text-[9px] font-bold text-slate-500 whitespace-nowrap">Baik</span></div>
-                              <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-[#FFFF00]"></div><span className="text-[9px] font-bold text-slate-500 whitespace-nowrap">Sedang</span></div>
-                              <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-[#92D050]"></div><span className="text-[9px] font-bold text-slate-500 whitespace-nowrap">Marginal</span></div>
-                              <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-[#FFC000]"></div><span className="text-[9px] font-bold text-slate-500 whitespace-nowrap">R. Ringan</span></div>
-                              <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-[#FF0000]"></div><span className="text-[9px] font-bold text-slate-500 whitespace-nowrap">R. Berat</span></div>
-                            </div>
+                      {/* Header / Toggle Handle */}
+                      <div
+                        onClick={() => setIsStripmapExpanded(!isStripmapExpanded)}
+                        className="p-3 flex justify-between items-center bg-white cursor-pointer hover:bg-slate-50 transition-colors shrink-0 group"
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className="bg-[#003B7A] text-white px-3 py-1 rounded text-[10px] font-black uppercase tracking-wider">
+                            Stripmap
                           </div>
-                          <div className="h-4 w-px bg-slate-200"></div>
-                          <div className="flex items-center gap-3">
-                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">TRT:</span>
-                            <div className="flex gap-3 overflow-x-auto max-w-md no-scrollbar">
-                              {Object.entries(TREAT_COLORS).filter(([k]) => k !== 'NONE' && k !== 'ROUTINE').map(([k, cfg]) => (
-                                <div key={k} className="flex items-center gap-1.5">
-                                  <div className="w-2.5 h-1.5 rounded-sm" style={{ background: cfg.bg }}></div>
-                                  <span className="text-[8px] font-bold text-slate-400 whitespace-nowrap">{k}</span>
+                          <div className="flex flex-col">
+                            <h3 className="font-black text-sm text-slate-800 leading-none">{selectedRuas.nama_jalan || selectedRuas.nama}</h3>
+                            <span className="text-[10px] text-slate-400 font-bold uppercase mt-1">Ruas {selectedRuas.no_ruas || selectedRuas.id} • {selectedRuas.ppk}</span>
+                          </div>
+                        </div>
+
+                        <div className="flex gap-4 items-center">
+                          <div className="hidden md:flex gap-4">
+                            {Object.entries(TREAT_COLORS).filter(([k]) => k !== 'NONE' && k !== 'RM').slice(0, 4).map(([k, cfg]) => (
+                              <div key={k} className="flex items-center gap-1.5 opacity-60 group-hover:opacity-100 transition">
+                                <div className="w-3 h-1.5 rounded-full" style={{ background: cfg.bg }}></div>
+                                <span className="text-[9px] font-black text-slate-500 uppercase">{k}</span>
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="h-6 w-px bg-slate-200 mx-2"></div>
+
+                          <div className="flex items-center gap-2">
+                            <button className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 text-[#003B7A] text-[10px] font-bold border border-blue-100 hover:bg-blue-100 transition whitespace-nowrap">
+                              {isStripmapExpanded ? 'Tutup Detail' : 'Buka Detail Stripmap'}
+                              {isStripmapExpanded ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+                            </button>
+
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedRuasId(null);
+                              }}
+                              className="text-slate-300 hover:text-red-500 transition p-1"
+                            >
+                              <X size={20} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Table Content */}
+                      <div className={`flex-1 overflow-auto bg-slate-50 transition-opacity duration-300 ${isStripmapExpanded ? "opacity-100" : "opacity-0 pointer-events-none"}`}>
+                        <div className="p-4 space-y-8 custom-stripmap-scrollbar">
+                          {(() => {
+                            const allSegments = selectedRuas.segments || [];
+                            const chunkSize = 40; // 4km sections (assuming 100m segments)
+                            const chunks = [];
+                            for (let i = 0; i < allSegments.length; i += chunkSize) {
+                              chunks.push(allSegments.slice(i, i + chunkSize));
+                            }
+
+                            return chunks.map((chunk, chunkIdx) => (
+                              <div key={`chunk-${chunkIdx}`} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                                <div className="px-4 py-2 bg-slate-50 border-b flex justify-between items-center">
+                                  <span className="text-[10px] font-black text-[#003B7A] uppercase tracking-widest">
+                                    Seksi {chunkIdx + 1} | {formatSTA(chunk[0].sta_awal)} - {formatSTA(chunk[chunk.length - 1].sta_akhir)}
+                                  </span>
                                 </div>
-                              ))}
+                                <div className="overflow-hidden">
+                                  <table className="w-full border-collapse table-fixed border-hidden">
+                                    <thead>
+                                      <tr>
+                                        <th className="w-16 sticky left-0 z-30 bg-white border-r-2 border-slate-200 p-1 text-[9px] font-black uppercase text-slate-400 text-right">STA</th>
+                                        {chunk.map((seg: any) => {
+                                          const km = Math.floor(seg.sta_awal / 1000);
+                                          const m = seg.sta_awal % 1000;
+                                          const mStr = String(m).padStart(3, "0");
+                                          return (
+                                            <th key={seg.id} className="border bg-slate-50 p-0 text-center">
+                                              <div className="font-black text-[8px] text-[#003B7A] h-12 flex items-center justify-center [writing-mode:vertical-lr] rotate-180 mx-auto">
+                                                {km}+{mStr}
+                                              </div>
+                                            </th>
+                                          );
+                                        })}
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {availableYears.map((y) => (
+                                        <React.Fragment key={`rows-${chunkIdx}-${y}`}>
+                                          {/* Condition Row (IRI or SDI) */}
+                                          {mode === 'iri' && (
+                                            <tr className="group/row">
+                                              <td className="sticky left-0 z-30 border bg-white p-1 text-[8px] font-black text-slate-400 text-right whitespace-nowrap border-r-2 border-slate-200 group-hover/row:bg-blue-50 transition border-b-0 uppercase">
+                                                {y} {String(selectedRuas.pengelola || 'nasional').toLowerCase() === 'nasional' ? '(IRI)' : '(SDI)'}
+                                              </td>
+                                              {chunk.map((seg: any) => {
+                                                const pengelola = String(selectedRuas.pengelola || 'nasional').toLowerCase();
+                                                const isNasional = pengelola === 'nasional';
+                                                const val = isNasional ? (seg[y]?.iri || 0) : (seg[y]?.sdi || 0);
+                                                const cfg = isNasional ? getIriBg(val) : getSdiBg(val);
+                                                const label = isNasional
+                                                  ? (typeof val === 'number' ? val.toFixed(1).replace(".", ",") : val)
+                                                  : (typeof val === 'number' ? Math.round(val) : val);
+
+                                                return (
+                                                  <td
+                                                    key={`cond-${y}-${seg.id}`}
+                                                    className="border border-slate-200 p-0 text-center font-mono text-[7px] font-black transition-all hover:scale-110 hover:z-50 hover:shadow-lg cursor-default h-6"
+                                                    style={{ backgroundColor: cfg.bg, color: cfg.fg }}
+                                                    title={`STA ${formatSTA(seg.sta_awal)} | ${isNasional ? 'IRI' : 'SDI'} ${y}: ${val}`}
+                                                  >
+                                                    {val && val !== 0 && val !== "0" ? label : ""}
+                                                  </td>
+                                                );
+                                              })}
+                                            </tr>
+                                          )}
+                                          {/* Treatment Row */}
+                                          {mode === 'treatment' && (
+                                            <tr className="group/row">
+                                              <td className="sticky left-0 z-30 border bg-white p-1 text-[7px] font-black text-slate-400 text-right whitespace-nowrap border-r-2 border-slate-200 group-hover/row:bg-blue-50 transition">
+                                                {y} (TRT)
+                                              </td>
+                                              {chunk.map((seg: any) => {
+                                                const treatValue = seg[y]?.treatment;
+                                                const cfg = getTreatmentConfig(treatValue);
+                                                return (
+                                                  <td
+                                                    key={`trt-${y}-${seg.id}`}
+                                                    className="border border-slate-200 p-0 text-center font-mono text-[6px] font-black transition-all hover:scale-110 hover:z-50 cursor-default h-6"
+                                                    style={{ backgroundColor: cfg.bg, color: cfg.fg }}
+                                                    title={`STA ${formatSTA(seg.sta_awal)} | Treatment ${y}: ${treatValue || 'NONE'}`}
+                                                  >
+                                                    {treatValue && treatValue !== 'NONE' ? treatValue : ""}
+                                                  </td>
+                                                );
+                                              })}
+                                            </tr>
+                                          )}
+                                        </React.Fragment>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            ));
+                          })()}
+                        </div>
+
+                        {/* Legends Sub-Footer */}
+                        <div className="sticky bottom-0 left-0 right-0 p-3 bg-white border-t flex justify-between items-center px-6">
+                          <div className="flex gap-8 items-center">
+                            <div className="flex items-center gap-3">
+                              <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Kondisi:</span>
+                              <div className="flex gap-4">
+                                <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-[#1A7A2E]"></div><span className="text-[9px] font-bold text-slate-500 whitespace-nowrap">Baik</span></div>
+                                <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-[#FFFF00]"></div><span className="text-[9px] font-bold text-slate-500 whitespace-nowrap">Sedang</span></div>
+                                <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-[#92D050]"></div><span className="text-[9px] font-bold text-slate-500 whitespace-nowrap">Marginal</span></div>
+                                <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-[#FFC000]"></div><span className="text-[9px] font-bold text-slate-500 whitespace-nowrap">R. Ringan</span></div>
+                                <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-[#FF0000]"></div><span className="text-[9px] font-bold text-slate-500 whitespace-nowrap">R. Berat</span></div>
+                              </div>
+                            </div>
+                            <div className="h-4 w-px bg-slate-200"></div>
+                            <div className="flex items-center gap-3">
+                              <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">TRT:</span>
+                              <div className="flex gap-3 overflow-x-auto max-w-md no-scrollbar">
+                                {Object.entries(TREAT_COLORS).filter(([k]) => k !== 'NONE' && k !== 'ROUTINE').map(([k, cfg]) => (
+                                  <div key={k} className="flex items-center gap-1.5">
+                                    <div className="w-2.5 h-1.5 rounded-sm" style={{ background: cfg.bg }}></div>
+                                    <span className="text-[8px] font-bold text-slate-400 whitespace-nowrap">{k}</span>
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                           <button 
-                             onClick={handleDownloadRuasExcel}
-                             className="px-3 py-1 bg-[#003B7A] text-white text-[10px] font-bold rounded flex items-center gap-2 hover:bg-blue-900 transition shadow-sm"
-                           >
-                             <Database size={12} /> Unduh Data Ruas
-                           </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={handleDownloadRuasExcel}
+                              className="px-3 py-1 bg-[#003B7A] text-white text-[10px] font-bold rounded flex items-center gap-2 hover:bg-blue-900 transition shadow-sm"
+                            >
+                              <Database size={12} /> Unduh Data Ruas
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </>
-                )}
-              </motion.div>
-            )}
-          </AnimatePresence>
+                    </>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
-          
+
           {mainView === 'analytics' && (
             filterPengelola ? (
-              <AnalyticsDashboard 
-                ruasData={filteredRuasData} 
-                selectedYear={year} 
+              <AnalyticsDashboard
+                ruasData={filteredRuasData}
+                selectedYear={year}
                 availableYears={availableYears}
                 externalFilterKewenangan={filterPengelola}
                 externalSearchQuery={anaSearchQuery}
@@ -1719,7 +1731,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                   </div>
                   <h2 className="text-2xl font-black text-[#003B7A] mb-3 uppercase tracking-tight">Pilih Kewenangan</h2>
                   <p className="text-slate-500 font-medium mb-8">Silakan pilih kewenangan jalan pada sidebar sebelah kiri untuk melihat analisis dan laporan data jalan.</p>
-                  <button 
+                  <button
                     onClick={() => setSidebarExpanded(true)}
                     className="px-8 py-3 bg-[#003B7A] text-white font-black rounded-xl shadow-lg hover:shadow-blue-200 transition-all uppercase tracking-wider text-sm"
                   >
@@ -1729,11 +1741,11 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
               </div>
             )
           )}
-          
+
           {mainView === 'trend' && (
             filterPengelola ? (
-              <TrendDashboard 
-                ruasData={filteredRuasData} 
+              <TrendDashboard
+                ruasData={filteredRuasData}
                 availableYears={availableYears}
                 externalFilterKewenangan={filterPengelola}
                 externalFilterRuas={treFilterRuas}
@@ -1760,26 +1772,26 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
       {/* --- MODALS --- */}
       <AnimatePresence>
         {isUploadModalOpen && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-[2000] bg-black/50 flex items-center justify-center p-4"
           >
-            <motion.div 
+            <motion.div
               initial={{ scale: 0.95, y: 20 }}
               animate={{ scale: 1, y: 0 }}
               className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden"
             >
               <div className="p-4 border-b flex justify-between items-center bg-[#003B7A] text-white">
-                <h3 className="font-bold flex items-center gap-2"><Upload size={18}/> Unggah Data Excel Database</h3>
-                <button onClick={() => setIsUploadModalOpen(false)}><X size={20}/></button>
+                <h3 className="font-bold flex items-center gap-2"><Upload size={18} /> Unggah Data Excel Database</h3>
+                <button onClick={() => setIsUploadModalOpen(false)}><X size={20} /></button>
               </div>
               <div className="p-6 space-y-4">
                 <div className="border-2 border-dashed border-slate-200 rounded-xl p-10 text-center hover:border-[#003B7A] transition-colors cursor-pointer relative">
-                  <input 
-                    type="file" 
-                    accept=".xlsx, .xls, .csv" 
+                  <input
+                    type="file"
+                    accept=".xlsx, .xls, .csv"
                     onChange={handleFileUpload}
                     className="absolute inset-0 opacity-0 cursor-pointer"
                   />
@@ -1796,13 +1808,13 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
                 <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                   <h4 className="text-[10px] font-black text-slate-400 uppercase mb-2 flex items-center gap-2">
-                    <Info size={12}/> Format Kolom yang Dibutuhkan
+                    <Info size={12} /> Format Kolom yang Dibutuhkan
                   </h4>
                   <p className="text-[10px] text-slate-600 leading-relaxed font-medium">
                     Kolom Wajib: <code className="bg-slate-200 px-1 rounded text-[#003B7A]">Pengelola</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">No. Ruas</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">Nama Jalan</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">PPK</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">ID Segmen</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">STA Awal</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">STA Akhir</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">Lon</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">Lat</code>, <code className="bg-slate-200 px-1 rounded text-[#003B7A]">Tahun</code>.
-                    <br/>
+                    <br />
                     Data Kondisi: <code className="bg-slate-200 px-1 rounded text-[#003B7A]">IRI</code> (Nasional) atau <code className="bg-slate-200 px-1 rounded text-[#003B7A]">SDI</code> (Daerah).
-                    <br/>
+                    <br />
                     Penanganan: <code className="bg-slate-200 px-1 rounded text-[#003B7A]">Treatment</code> (opsional).
                   </p>
                 </div>
@@ -1814,7 +1826,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                       <span>{uploadProgress}%</span>
                     </div>
                     <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                      <motion.div 
+                      <motion.div
                         initial={{ width: 0 }}
                         animate={{ width: `${uploadProgress}%` }}
                         className="h-full bg-[#F5A800]"
@@ -1839,13 +1851,13 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
         )}
 
         {isSettingsModalOpen && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-[2000] bg-black/50 flex items-center justify-center p-4"
           >
-            <motion.div 
+            <motion.div
               initial={{ scale: 0.95, y: 20 }}
               animate={{ scale: 1, y: 0 }}
               className="bg-white rounded-xl shadow-2xl w-[95vw] h-[90vh] flex flex-col overflow-hidden"
@@ -1855,11 +1867,11 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                   <Database size={20} className="text-[#F5A800] w-4 h-4 md:w-5 md:h-5" />
                   <h3 className="font-black text-sm md:text-base lg:text-lg uppercase tracking-tight">Koreksi Database</h3>
                 </div>
-                
+
                 <div className="flex-1 flex flex-wrap items-center gap-2 md:gap-3 justify-start lg:justify-center w-full">
                   <div className="flex items-center gap-2 bg-white/10 rounded-lg px-2 md:px-3 py-1.5 border border-white/10">
                     <span className="text-[8px] md:text-[9px] font-black text-white/50 uppercase">Tahun</span>
-                    <select 
+                    <select
                       value={selectedDbYear}
                       onChange={(e) => setSelectedDbYear(e.target.value)}
                       className="bg-transparent text-white text-[10px] md:text-xs font-bold outline-none cursor-pointer"
@@ -1873,7 +1885,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
                   <div className="flex items-center gap-2 bg-white/10 rounded-lg px-2 md:px-3 py-1.5 border border-white/10">
                     <span className="text-[8px] md:text-[9px] font-black text-white/50 uppercase">Ruas</span>
-                    <select 
+                    <select
                       value={selectedDbRuas}
                       onChange={(e) => setSelectedDbRuas(e.target.value)}
                       className="bg-transparent text-white text-[10px] md:text-xs font-bold outline-none cursor-pointer max-w-[120px] md:max-w-[200px]"
@@ -1881,19 +1893,19 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                       <option value="" disabled className="text-slate-400">Pilih...</option>
                       <option value="all" className="text-slate-900">SEMUA RUAS</option>
                       {ruasData.filter(r => {
-                          const p = String(r.pengelola || 'nasional').toLowerCase();
-                          const k = String(r.kabupaten_kota || '').toLowerCase();
-                          
-                          if (dbFilterPengelola !== 'all') {
-                            if (dbFilterPengelola === 'nasional' && p !== 'nasional') return false;
-                            if (dbFilterPengelola === 'daerah' && p === 'nasional') return false;
-                          }
+                        const p = String(r.pengelola || 'nasional').toLowerCase();
+                        const k = String(r.kabupaten_kota || '').toLowerCase();
 
-                          if (dbFilterKabupatenKota !== 'all') {
-                            if (p !== dbFilterKabupatenKota && k !== dbFilterKabupatenKota) return false;
-                          }
+                        if (dbFilterPengelola !== 'all') {
+                          if (dbFilterPengelola === 'nasional' && p !== 'nasional') return false;
+                          if (dbFilterPengelola === 'daerah' && p === 'nasional') return false;
+                        }
 
-                          return true;
+                        if (dbFilterKabupatenKota !== 'all') {
+                          if (p !== dbFilterKabupatenKota && k !== dbFilterKabupatenKota) return false;
+                        }
+
+                        return true;
                       }).map(r => (
                         <option key={r.id} value={r.no_ruas} className="text-slate-900">{r.no_ruas} : {r.nama_jalan === 'Tanpa Nama' ? 'Tanpa Nama' : r.nama_jalan}</option>
                       ))}
@@ -1902,7 +1914,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
                   <div className="flex items-center gap-2 bg-white/10 rounded-lg px-2 md:px-3 py-1.5 border border-white/10">
                     <span className="text-[8px] md:text-[9px] font-black text-white/50 uppercase">Kewenang</span>
-                    <select 
+                    <select
                       value={dbFilterPengelola}
                       onChange={(e) => setDbFilterPengelola(e.target.value)}
                       className="bg-transparent text-white text-[10px] md:text-xs font-bold outline-none cursor-pointer"
@@ -1916,7 +1928,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                   {dbFilterPengelola !== 'nasional' && (
                     <div className="flex items-center gap-2 bg-white/10 rounded-lg px-2 md:px-3 py-1.5 border border-white/10">
                       <span className="text-[8px] md:text-[9px] font-black text-white/50 uppercase">Wilayah</span>
-                      <select 
+                      <select
                         value={dbFilterKabupatenKota}
                         onChange={(e) => setDbFilterKabupatenKota(e.target.value)}
                         className="bg-transparent text-white text-[10px] md:text-xs font-bold outline-none cursor-pointer"
@@ -1931,8 +1943,8 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
                   <div className="relative">
                     <Search size={14} className="absolute left-3 top-2.5 text-white/40" />
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       placeholder="Cari..."
                       value={searchSegQuery}
                       onChange={(e) => setSearchSegQuery(e.target.value)}
@@ -1942,7 +1954,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                 </div>
 
                 <div className="shrink-0 absolute top-3 md:top-4 right-4 lg:static">
-                  <button 
+                  <button
                     onClick={() => setIsSettingsModalOpen(false)}
                     className="p-1.5 md:p-2 hover:bg-white/10 rounded-full transition-colors text-white/70 hover:text-white"
                     title="Tutup"
@@ -1951,7 +1963,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                   </button>
                 </div>
               </div>
-              
+
               <div className="flex-1 overflow-auto bg-slate-50">
                 <table className="w-full text-left bg-white text-xs border-collapse">
                   <thead className="sticky top-0 bg-slate-100 shadow-sm z-20">
@@ -1960,8 +1972,8 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                       return (
                         <tr>
                           <th className="px-2 py-3 border-b font-bold text-slate-500 uppercase w-10 text-center">
-                            <input 
-                              type="checkbox" 
+                            <input
+                              type="checkbox"
                               checked={allSelected}
                               onChange={() => toggleSelectAll(filteredEditableSegments)}
                             />
@@ -1988,7 +2000,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                     {(!selectedDbYear || !selectedDbRuas) ? (
                       <tr>
                         <td colSpan={15} className="py-8 text-center text-slate-500">
-                          Silahkan pilih Tahun dan Ruas di atas terlebih dahulu untuk memuat data koreksi. 
+                          Silahkan pilih Tahun dan Ruas di atas terlebih dahulu untuk memuat data koreksi.
                           <br />
                           <span className="text-xs opacity-75 mt-2 block">(Data sengaja tidak dimuat otomatis untuk menjaga performa browser)</span>
                         </td>
@@ -2002,14 +2014,14 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                     ) : paginatedSegments.map((s) => (
                       <tr key={s.id} className={`hover:bg-blue-50/50 ${selectedIds.has(s.id) ? 'bg-blue-50' : ''}`}>
                         <td className="p-1 border-b text-center">
-                          <input 
-                            type="checkbox" 
+                          <input
+                            type="checkbox"
                             checked={selectedIds.has(s.id)}
                             onChange={() => toggleSelectOne(s.id)}
                           />
                         </td>
                         <td className="p-1 border-b">
-                          <select 
+                          <select
                             className="w-full bg-transparent border-none focus:ring-1 focus:ring-blue-400 rounded px-1 py-1 text-[10px] font-bold uppercase"
                             value={s.pengelola === 'nasional' ? 'nasional' : 'daerah'}
                             onChange={(e) => handleUpdateLocalSegment(s.id, 'pengelola', e.target.value)}
@@ -2019,8 +2031,8 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                           </select>
                         </td>
                         <td className="p-1 border-b">
-                           <input 
-                            type="text" 
+                          <input
+                            type="text"
                             className="w-full bg-transparent border-none focus:ring-1 focus:ring-blue-400 rounded px-1 py-1 text-[10px] font-bold"
                             placeholder={s.pengelola === 'nasional' ? '-' : 'Pilih Wilayah...'}
                             disabled={s.pengelola === 'nasional'}
@@ -2035,56 +2047,56 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                           </datalist>
                         </td>
                         <td className="p-1 border-b">
-                          <input 
-                            type="text" 
+                          <input
+                            type="text"
                             className="w-full bg-transparent border-none focus:ring-1 focus:ring-blue-400 rounded px-1 py-1"
                             value={s.no_ruas}
                             onChange={(e) => handleUpdateLocalSegment(s.id, 'no_ruas', e.target.value)}
                           />
                         </td>
                         <td className="p-1 border-b">
-                          <input 
-                            type="text" 
+                          <input
+                            type="text"
                             className="w-full bg-transparent border-none focus:ring-1 focus:ring-blue-400 rounded px-1 py-1"
                             value={s.nama_jalan}
                             onChange={(e) => handleUpdateLocalSegment(s.id, 'nama_jalan', e.target.value)}
                           />
                         </td>
                         <td className="p-1 border-b">
-                          <input 
-                            type="text" 
+                          <input
+                            type="text"
                             className="w-full bg-transparent border-none focus:ring-1 focus:ring-blue-400 rounded px-1 py-1"
                             value={s.ppk}
                             onChange={(e) => handleUpdateLocalSegment(s.id, 'ppk', e.target.value)}
                           />
                         </td>
                         <td className="p-1 border-b">
-                          <input 
-                            type="text" 
+                          <input
+                            type="text"
                             className="w-full bg-transparent border-none focus:ring-1 focus:ring-blue-400 rounded px-1 py-1"
                             value={s.segment_id}
                             onChange={(e) => handleUpdateLocalSegment(s.id, 'segment_id', e.target.value)}
                           />
                         </td>
                         <td className="p-1 border-b">
-                          <input 
-                            type="number" 
+                          <input
+                            type="number"
                             className="w-full bg-transparent border-none focus:ring-1 focus:ring-blue-400 rounded px-1 py-1 text-center"
                             value={s.sta_awal}
                             onChange={(e) => handleUpdateLocalSegment(s.id, 'sta_awal', Number(e.target.value))}
                           />
                         </td>
                         <td className="p-1 border-b">
-                          <input 
-                            type="number" 
+                          <input
+                            type="number"
                             className="w-full bg-transparent border-none focus:ring-1 focus:ring-blue-400 rounded px-1 py-1 text-center"
                             value={s.sta_akhir}
                             onChange={(e) => handleUpdateLocalSegment(s.id, 'sta_akhir', Number(e.target.value))}
                           />
                         </td>
                         <td className="p-1 border-b">
-                          <input 
-                            type="number" 
+                          <input
+                            type="number"
                             step="0.000001"
                             className="w-full bg-transparent border-none focus:ring-1 focus:ring-blue-400 rounded px-1 py-1 text-center font-mono"
                             value={s.longitude}
@@ -2092,8 +2104,8 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                           />
                         </td>
                         <td className="p-1 border-b">
-                          <input 
-                            type="number" 
+                          <input
+                            type="number"
                             step="0.000001"
                             className="w-full bg-transparent border-none focus:ring-1 focus:ring-blue-400 rounded px-1 py-1 text-center font-mono"
                             value={s.latitude}
@@ -2101,8 +2113,8 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                           />
                         </td>
                         <td className="p-1 border-b">
-                          <input 
-                            type="number" 
+                          <input
+                            type="number"
                             step="0.01"
                             className={`w-full bg-transparent border-none focus:ring-1 focus:ring-blue-400 rounded px-1 py-1 text-center font-bold ${s.pengelola !== 'nasional' ? 'opacity-30' : ''}`}
                             value={s.iri_value}
@@ -2111,7 +2123,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                           />
                         </td>
                         <td className="p-1 border-b">
-                          <select 
+                          <select
                             className={`w-full bg-transparent border-none focus:ring-1 focus:ring-blue-400 rounded px-1 py-1 text-center font-bold ${s.pengelola === 'nasional' ? 'opacity-30' : ''}`}
                             value={String(s.sdi_value || "")}
                             disabled={s.pengelola === 'nasional'}
@@ -2125,7 +2137,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                           </select>
                         </td>
                         <td className="p-1 border-b text-center">
-                          <select 
+                          <select
                             className="w-full bg-transparent border-none focus:ring-1 focus:ring-blue-400 rounded px-1 py-1 text-xs font-bold"
                             value={String(s.treatment || "NONE")}
                             onChange={(e) => handleUpdateLocalSegment(s.id, 'treatment', e.target.value)}
@@ -2155,26 +2167,25 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
                 {/* Pagination Controls */}
                 <div className="flex items-center bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden h-9">
-                  <button 
+                  <button
                     disabled={dbPage === 1}
                     onClick={() => setDbPage(1)}
                     className="px-3 h-full flex items-center justify-center text-blue-600 hover:bg-slate-50 disabled:opacity-30 border-r border-slate-200 transition-colors"
                   >
                     «
                   </button>
-                  
+
                   {(() => {
                     const pages = [];
                     const maxVisible = 2; // Pages to show on each side of current
-                    
+
                     // Always show page 1
                     pages.push(
                       <button
                         key={1}
                         onClick={() => setDbPage(1)}
-                        className={`px-3 h-full flex items-center justify-center text-[11px] font-bold border-r border-slate-200 transition-colors ${
-                          dbPage === 1 ? 'bg-blue-600 text-white' : 'text-blue-600 hover:bg-slate-50'
-                        }`}
+                        className={`px-3 h-full flex items-center justify-center text-[11px] font-bold border-r border-slate-200 transition-colors ${dbPage === 1 ? 'bg-blue-600 text-white' : 'text-blue-600 hover:bg-slate-50'
+                          }`}
                       >
                         1
                       </button>
@@ -2190,9 +2201,8 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                         <button
                           key={i}
                           onClick={() => setDbPage(i)}
-                          className={`px-3 h-full flex items-center justify-center text-[11px] font-bold border-r border-slate-200 transition-colors ${
-                            dbPage === i ? 'bg-blue-600 text-white' : 'text-blue-600 hover:bg-slate-50'
-                          }`}
+                          className={`px-3 h-full flex items-center justify-center text-[11px] font-bold border-r border-slate-200 transition-colors ${dbPage === i ? 'bg-blue-600 text-white' : 'text-blue-600 hover:bg-slate-50'
+                            }`}
                         >
                           {i}
                         </button>
@@ -2209,9 +2219,8 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                         <button
                           key={totalDbPages}
                           onClick={() => setDbPage(totalDbPages)}
-                          className={`px-3 h-full flex items-center justify-center text-[11px] font-bold border-r border-slate-200 transition-colors ${
-                            dbPage === totalDbPages ? 'bg-blue-600 text-white' : 'text-blue-600 hover:bg-slate-50'
-                          }`}
+                          className={`px-3 h-full flex items-center justify-center text-[11px] font-bold border-r border-slate-200 transition-colors ${dbPage === totalDbPages ? 'bg-blue-600 text-white' : 'text-blue-600 hover:bg-slate-50'
+                            }`}
                         >
                           {totalDbPages}
                         </button>
@@ -2221,7 +2230,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                     return pages;
                   })()}
 
-                  <button 
+                  <button
                     disabled={dbPage >= totalDbPages}
                     onClick={() => setDbPage(totalDbPages)}
                     className="px-3 h-full flex items-center justify-center text-blue-600 hover:bg-slate-50 disabled:opacity-30 transition-colors"
@@ -2232,14 +2241,14 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
                 <div className="flex flex-wrap items-center justify-center md:justify-end gap-2 md:gap-3 w-full md:w-auto">
                   <div className="flex gap-2 pr-0 md:pr-4 border-none md:border-r border-slate-200">
-                    <button 
+                    <button
                       onClick={handleDeleteYearData}
                       disabled={isSaving || !selectedDbYear}
                       className="px-3 md:px-4 py-1.5 md:py-2 text-[9px] md:text-[11px] font-black uppercase text-orange-700 bg-orange-50 border border-orange-200 rounded-lg hover:bg-orange-100 transition disabled:opacity-50"
                     >
                       Hapus Data {selectedDbYear}
                     </button>
-                    <button 
+                    <button
                       onClick={handleClearDatabase}
                       disabled={isSaving}
                       className="px-3 md:px-4 py-1.5 md:py-2 text-[9px] md:text-[11px] font-black uppercase text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition disabled:opacity-50"
@@ -2249,7 +2258,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                   </div>
 
                   {selectedIds.size > 0 && (
-                    <button 
+                    <button
                       onClick={handleDeleteSelected}
                       className="px-3 md:px-4 py-1.5 md:py-2 text-[9px] md:text-[11px] font-black uppercase text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition flex items-center gap-1.5 animate-in fade-in zoom-in-95 duration-200"
                     >
@@ -2258,7 +2267,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                   )}
 
                   {filteredEditableSegments.length > 0 && (
-                    <button 
+                    <button
                       onClick={handleDeleteFiltered}
                       className="px-3 md:px-4 py-1.5 md:py-2 text-[9px] md:text-[11px] font-black uppercase text-red-800 bg-red-100/50 border border-red-200 rounded-lg hover:bg-red-100 transition flex items-center gap-1.5"
                       title="Hapus semua data yang saat ini muncul di tabel sesuai filter"
@@ -2266,15 +2275,15 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                       Hapus Terfilter ({filteredEditableSegments.length})
                     </button>
                   )}
-                  
-                  <button 
-                    onClick={() => setIsSettingsModalOpen(false)} 
+
+                  <button
+                    onClick={() => setIsSettingsModalOpen(false)}
                     className="px-4 md:px-6 py-1.5 md:py-2 text-[9px] md:text-[11px] font-black uppercase text-slate-500 border border-slate-200 rounded-lg hover:bg-white transition"
                   >
                     Batal
                   </button>
-                  
-                  <button 
+
+                  <button
                     onClick={handleSaveAllCorrections}
                     disabled={isSaving}
                     className={`px-5 md:px-8 py-1.5 md:py-2 text-[9px] md:text-[11px] font-black uppercase bg-[#F5A800] text-[#003B7A] rounded-lg shadow-lg hover:bg-[#FFB800] hover:shadow-xl transition-all flex items-center gap-1.5 transform active:scale-95 ${isSaving ? 'opacity-50 cursor-not-allowed' : ''}`}
