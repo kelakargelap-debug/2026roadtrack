@@ -156,14 +156,28 @@ async function startServer() {
     const selectRuasId = db.prepare("SELECT id FROM ruas_jalan WHERE no_ruas = ?");
     const selectSegId = db.prepare("SELECT id FROM segmen_jalan WHERE segment_id = ?");
 
+    const normalizeKey = (s: string) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
     const getVal = (item: any, keys: string[]) => {
       const itemKeys = Object.keys(item);
+      
+      // 1. Try exact match (case-insensitive + trim)
       for (const k of keys) {
         const matchingKey = itemKeys.find(ik => ik.trim().toLowerCase() === k.toLowerCase());
         if (matchingKey && item[matchingKey] !== undefined && item[matchingKey] !== null && item[matchingKey] !== "") {
           return item[matchingKey];
         }
       }
+
+      // 2. Try normalized match (remove all non-alphanumeric)
+      for (const k of keys) {
+        const target = normalizeKey(k);
+        const matchingKey = itemKeys.find(ik => normalizeKey(ik) === target);
+        if (matchingKey && item[matchingKey] !== undefined && item[matchingKey] !== null && item[matchingKey] !== "") {
+          return item[matchingKey];
+        }
+      }
+
       return undefined;
     };
 
@@ -211,6 +225,11 @@ async function startServer() {
 
     const transaction = db.transaction((items) => {
       let imported = 0;
+      
+      if (items.length > 0) {
+        console.log("[IMPORT] Headers detected:", Object.keys(items[0]));
+      }
+
       for (const item of items) {
         const pengelolaRaw = String(getVal(item, mapping.pengelola) || "nasional").toLowerCase();
         const pengelola = pengelolaRaw.includes("nasional") ? "nasional" : pengelolaRaw;
