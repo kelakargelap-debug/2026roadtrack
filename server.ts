@@ -348,7 +348,7 @@ async function startServer() {
   // LIGHTWEIGHT: Returns ruas metadata + segment count + available years. NO segments data.
   app.get("/api/ruas/list", (req, res) => {
     try {
-      const ruas = db.prepare("SELECT * FROM ruas_jalan").all();
+      const ruas = db.prepare("SELECT id, no_ruas, nama_jalan, pengelola, kabupaten_kota, ppk, panjang_km FROM ruas_jalan").all();
       const segCounts = db.prepare("SELECT ruas_id, COUNT(*) as count FROM segmen_jalan GROUP BY ruas_id").all() as any[];
       const segCountMap = new Map(segCounts.map((s: any) => [s.ruas_id, s.count]));
 

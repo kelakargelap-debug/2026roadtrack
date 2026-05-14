@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
 import { TrendDashboard } from '../components/TrendDashboard';
 import {
@@ -138,6 +138,47 @@ const getSegmentColor = (ruas: any, segment: any, year: string, mode: string) =>
   }
 };
 
+// --- PURE HELPER FUNCTIONS (outside component to avoid re-creation) ---
+const getIriBg = (v: number | undefined | null) => {
+  if (v === undefined || v === null || v <= 0) return { bg: '#CBD5E1', fg: '#64748B' };
+  if (v <= 4) return { bg: '#1A7A2E', fg: '#fff' };
+  if (v <= 6) return { bg: '#92D050', fg: '#333' };
+  if (v <= 8) return { bg: '#F5C800', fg: '#333' };
+  if (v <= 12) return { bg: '#E07820', fg: '#fff' };
+  return { bg: '#CC1A1A', fg: '#fff' };
+};
+
+const getSdiBg = (v: number | string | undefined | null) => {
+  if (v === undefined || v === null || v === "") return { bg: '#CBD5E1', fg: '#64748B' };
+  const s = String(v).toUpperCase().trim();
+  if (s === 'B' || s === 'BAIK') return { bg: '#1A7A2E', fg: '#fff' };
+  if (s === 'S' || s === 'SEDANG') return { bg: '#92D050', fg: '#333' };
+  if (s === 'RR' || s === 'RUSAK RINGAN') return { bg: '#E07820', fg: '#fff' };
+  if (s === 'RB' || s === 'RUSAK BERAT') return { bg: '#CC1A1A', fg: '#fff' };
+  const val = parseFloat(s);
+  if (isNaN(val) || val < 0) return { bg: '#CBD5E1', fg: '#64748B' };
+  if (val < 50) return { bg: '#1A7A2E', fg: '#fff' };
+  if (val < 100) return { bg: '#92D050', fg: '#333' };
+  if (val < 150) return { bg: '#E07820', fg: '#fff' };
+  return { bg: '#CC1A1A', fg: '#fff' };
+};
+
+// --- CONSTANT: Local authorities list (outside component) ---
+const MALUKU_AUTHORITIES = [
+  "provinsi maluku",
+  "kabupaten buru",
+  "kabupaten buru selatan",
+  "kabupaten kepulauan aru",
+  "kabupaten kepulauan tanimbar",
+  "kabupaten maluku barat daya",
+  "kabupaten maluku tengah",
+  "kabupaten maluku tenggara",
+  "kabupaten seram bagian barat",
+  "kabupaten seram bagian timur",
+  "kota ambon",
+  "kota tual"
+];
+
 // --- CUSTOM HOOK: LOAD LEAFLET ---
 const useLeaflet = () => {
   const [loaded, setLoaded] = useState(false);
@@ -196,6 +237,14 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
   // State for filtered ruas data (used by Analytics/Trend - loaded by pengelola filter)
   const [filteredRuasData, setFilteredRuasData] = useState<any[]>([]);
 
+  // --- CENTRAL HIERARCHY VALIDATION (memoized) ---
+  const isFilterHierarchyValid = useMemo(() => {
+    return (
+      (filterPengelola === 'nasional' && year) ||
+      (filterPengelola && filterPengelola !== 'daerah' && filterPengelola !== 'nasional' && year)
+    );
+  }, [filterPengelola, year]);
+
   // --- DERIVED DATA FOR SIDEBARS ---
   const anaSegments = useMemo(() => {
     if (mainView !== 'analytics') return []; // Skip computation when not needed
@@ -240,7 +289,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
   }, [anaSegments, anaFilterKecamatan]);
 
   const treRuasOptions = useMemo(() => {
-    if (mainView !== 'trend') return []; // Skip computation when not needed
+    if (mainView !== 'trend' || !isFilterHierarchyValid) return []; 
     const map = new Map();
     ruasData.forEach(r => {
       const pengelola = String(r.pengelola || 'nasional').toLowerCase();
@@ -257,7 +306,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
       map.set(r.no_ruas, r.nama_jalan === 'Tanpa Nama' ? r.no_ruas : r.nama_jalan);
     });
     return Array.from(map.entries()).map(([no, nama]) => ({ no_ruas: no, nama_jalan: nama })).sort((a, b) => a.no_ruas.localeCompare(b.no_ruas));
-  }, [ruasData, filterPengelola, mainView]);
+  }, [ruasData, filterPengelola, mainView, isFilterHierarchyValid]);
 
   const treSegmenOptions = useMemo(() => {
     if (treFilterRuas === 'all') return [];
@@ -283,38 +332,41 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
   const [dbPage, setDbPage] = useState(1);
   const dbItemsPerPage = 50;
 
-  const filteredEditableSegments = useMemo(() => editableSegments.filter(s => {
-    if (!selectedDbYear || !selectedDbRuas) return false;
-    const q = searchSegQuery.toLowerCase();
-    const matchesSearch = (
-      String(s.no_ruas || "").toLowerCase().includes(q) ||
-      String(s.nama_jalan || "").toLowerCase().includes(q) ||
-      String(s.segment_id || "").toLowerCase().includes(q)
-    );
-    const matchesRuas = selectedDbRuas === 'all' || s.no_ruas === selectedDbRuas;
+  // Guard: only compute when modal is open
+  const filteredEditableSegments = useMemo(() => {
+    if (!isSettingsModalOpen) return [];
+    return editableSegments.filter(s => {
+      if (!selectedDbYear || !selectedDbRuas) return false;
+      const q = searchSegQuery.toLowerCase();
+      const matchesSearch = (
+        String(s.no_ruas || "").toLowerCase().includes(q) ||
+        String(s.nama_jalan || "").toLowerCase().includes(q) ||
+        String(s.segment_id || "").toLowerCase().includes(q)
+      );
+      const matchesRuas = selectedDbRuas === 'all' || s.no_ruas === selectedDbRuas;
 
-    // Authority Filter
-    const p = String(s.pengelola || 'nasional').toLowerCase();
-    const k = String(s.kabupaten_kota || '').toLowerCase();
-    let matchesAuthority = true;
-    if (dbFilterPengelola !== 'all') {
-      if (dbFilterPengelola === 'nasional') matchesAuthority = p === 'nasional';
-      else if (dbFilterPengelola === 'daerah') matchesAuthority = p !== 'nasional';
-    }
+      const p = String(s.pengelola || 'nasional').toLowerCase();
+      const k = String(s.kabupaten_kota || '').toLowerCase();
+      let matchesAuthority = true;
+      if (dbFilterPengelola !== 'all') {
+        if (dbFilterPengelola === 'nasional') matchesAuthority = p === 'nasional';
+        else if (dbFilterPengelola === 'daerah') matchesAuthority = p !== 'nasional';
+      }
 
-    let matchesTerritory = true;
-    if (dbFilterKabupatenKota !== 'all') {
-      matchesTerritory = k === dbFilterKabupatenKota || p === dbFilterKabupatenKota;
-    }
+      let matchesTerritory = true;
+      if (dbFilterKabupatenKota !== 'all') {
+        matchesTerritory = k === dbFilterKabupatenKota || p === dbFilterKabupatenKota;
+      }
 
-    return matchesSearch && matchesRuas && matchesAuthority && matchesTerritory;
-  }), [editableSegments, selectedDbYear, selectedDbRuas, searchSegQuery, dbFilterPengelola, dbFilterKabupatenKota]);
+      return matchesSearch && matchesRuas && matchesAuthority && matchesTerritory;
+    });
+  }, [editableSegments, selectedDbYear, selectedDbRuas, searchSegQuery, dbFilterPengelola, dbFilterKabupatenKota, isSettingsModalOpen]);
 
-  const totalDbPages = Math.ceil(filteredEditableSegments.length / dbItemsPerPage);
-  const paginatedSegments = filteredEditableSegments.slice(
+  const totalDbPages = useMemo(() => Math.ceil(filteredEditableSegments.length / dbItemsPerPage), [filteredEditableSegments.length]);
+  const paginatedSegments = useMemo(() => filteredEditableSegments.slice(
     (dbPage - 1) * dbItemsPerPage,
     dbPage * dbItemsPerPage
-  );
+  ), [filteredEditableSegments, dbPage]);
 
   useEffect(() => {
     setDbPage(1);
@@ -430,33 +482,61 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
   };
 
 
-  const getIriBg = (v: number | undefined | null) => {
-    if (v === undefined || v === null || v <= 0) return { bg: '#CBD5E1', fg: '#64748B' };
-    if (v <= 4) return { bg: '#1A7A2E', fg: '#fff' };
-    if (v <= 6) return { bg: '#92D050', fg: '#333' };
-    if (v <= 8) return { bg: '#F5C800', fg: '#333' };
-    if (v <= 12) return { bg: '#E07820', fg: '#fff' };
-    return { bg: '#CC1A1A', fg: '#fff' };
-  };
-
-  const getSdiBg = (v: number | string | undefined | null) => {
-    if (v === undefined || v === null || v === "") return { bg: '#CBD5E1', fg: '#64748B' };
-
-    const s = String(v).toUpperCase().trim();
-    if (s === 'B' || s === 'BAIK') return { bg: '#1A7A2E', fg: '#fff' };
-    if (s === 'S' || s === 'SEDANG') return { bg: '#92D050', fg: '#333' };
-    if (s === 'RR' || s === 'RUSAK RINGAN') return { bg: '#E07820', fg: '#fff' };
-    if (s === 'RB' || s === 'RUSAK BERAT') return { bg: '#CC1A1A', fg: '#fff' };
-
-    const val = parseFloat(s);
-    if (isNaN(val) || val < 0) return { bg: '#CBD5E1', fg: '#64748B' };
-    if (val < 50) return { bg: '#1A7A2E', fg: '#fff' };
-    if (val < 100) return { bg: '#92D050', fg: '#333' };
-    if (val < 150) return { bg: '#E07820', fg: '#fff' };
-    return { bg: '#CC1A1A', fg: '#fff' };
-  };
+  // getIriBg and getSdiBg moved outside component for performance
 
   const selectedRuas = selectedRuasDetail;
+
+  // Memoize sidebar ruas list to avoid re-filtering on every render
+  const sidebarRuasList = useMemo(() => {
+    if (!isFilterHierarchyValid) return [];
+    return ruasData.filter(r => {
+      const p = String(r.pengelola || 'nasional').toLowerCase();
+      const k = String(r.kabupaten_kota || '').toLowerCase();
+      const q = searchRuasSidebar.toLowerCase();
+      let matchesAuthority = true;
+      if (filterPengelola === 'nasional') {
+        matchesAuthority = p === 'nasional';
+      } else if (filterPengelola === 'daerah') {
+        matchesAuthority = p !== 'nasional';
+      } else if (filterPengelola) {
+        matchesAuthority = p === filterPengelola || k === filterPengelola;
+      }
+      const matchesSearch = q === '' ||
+        String(r.no_ruas || '').toLowerCase().includes(q) ||
+        String(r.nama_jalan || r.nama || '').toLowerCase().includes(q);
+      return matchesAuthority && matchesSearch;
+    });
+  }, [ruasData, filterPengelola, year, searchRuasSidebar, isFilterHierarchyValid]);
+
+  // Memoize Koreksi DB ruas dropdown list — ONLY compute when modal is open
+  const dbRuasList = useMemo(() => {
+    if (!isSettingsModalOpen) return [];
+    return ruasData.filter(r => {
+      const p = String(r.pengelola || 'nasional').toLowerCase();
+      const k = String(r.kabupaten_kota || '').toLowerCase();
+      if (dbFilterPengelola !== 'all') {
+        if (dbFilterPengelola === 'nasional' && p !== 'nasional') return false;
+        if (dbFilterPengelola === 'daerah' && p === 'nasional') return false;
+      }
+      if (dbFilterKabupatenKota !== 'all') {
+        if (p !== dbFilterKabupatenKota && k !== dbFilterKabupatenKota) return false;
+      }
+      const q = searchSegQuery.toLowerCase();
+      if (q) {
+        const matchSearch = String(r.no_ruas || '').toLowerCase().includes(q) ||
+                            String(r.nama_jalan || '').toLowerCase().includes(q);
+        if (!matchSearch) return false;
+      }
+      return true;
+    });
+  }, [ruasData, dbFilterPengelola, dbFilterKabupatenKota, searchSegQuery, isSettingsModalOpen]);
+
+  const isDbHierarchyValid = useMemo(() => {
+    return (
+      (dbFilterPengelola === 'nasional' && selectedDbYear) ||
+      (dbFilterPengelola === 'daerah' && dbFilterKabupatenKota !== 'all' && selectedDbYear)
+    );
+  }, [dbFilterPengelola, dbFilterKabupatenKota, selectedDbYear]);
 
   useEffect(() => {
     const isDbHierarchyValid = 
@@ -496,7 +576,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
     }
   }, [isSettingsModalOpen, selectedDbYear, dbFilterPengelola, dbFilterKabupatenKota]);
 
-  const handleUpdateLocalSegment = (id: any, field: string, value: any) => {
+  const handleUpdateLocalSegment = useCallback((id: any, field: string, value: any) => {
     setDirtyIds(prev => {
       const next = new Set(prev);
       const isSelected = selectedIds.has(id);
@@ -515,7 +595,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
       }
       return prev.map(s => s.id === id ? { ...s, [field]: value } : s);
     });
-  };
+  }, [selectedIds]);
 
   const handleSaveAllCorrections = async () => {
     if (dirtyIds.size === 0) {
@@ -765,15 +845,17 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
     setSelectedIds(newSet);
   };
 
-  const toggleSelectOne = (id: string | number) => {
-    const newSet = new Set(selectedIds);
-    if (newSet.has(id)) {
-      newSet.delete(id);
-    } else {
-      newSet.add(id);
-    }
-    setSelectedIds(newSet);
-  };
+  const toggleSelectOne = useCallback((id: string | number) => {
+    setSelectedIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  }, []);
 
   const [isMapLoading, setIsMapLoading] = useState(false);
 
@@ -913,20 +995,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
     renderMap();
   }, [year, mode, selectedRuasDetail, isLeafletLoaded]);
 
-  const MALUKU_AUTHORITIES = [
-    "provinsi maluku",
-    "kabupaten buru",
-    "kabupaten buru selatan",
-    "kabupaten kepulauan aru",
-    "kabupaten kepulauan tanimbar",
-    "kabupaten maluku barat daya",
-    "kabupaten maluku tengah",
-    "kabupaten maluku tenggara",
-    "kabupaten seram bagian barat",
-    "kabupaten seram bagian timur",
-    "kota ambon",
-    "kota tual"
-  ];
+  // MALUKU_AUTHORITIES moved outside component for performance
 
   const localAuthorities = useMemo(() => Array.from(new Set([
     ...MALUKU_AUTHORITIES,
@@ -1037,123 +1106,48 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                       </div>
                     </div>
 
-                    {(() => {
-                      const isHierarchyValid = 
-                        (filterPengelola === 'nasional' && year) || 
-                        (filterPengelola && filterPengelola !== 'daerah' && filterPengelola !== 'nasional' && year);
-                        
-                      if (!isHierarchyValid) {
-                        return (
-                          <div className="bg-slate-100 border border-slate-200 rounded-lg p-4 text-center">
-                            <div className="text-[11px] font-bold text-slate-500 mb-1">Daftar Ruas Belum Tersedia</div>
-                            <div className="text-[9px] text-slate-400">
-                              {(!filterPengelola || filterPengelola === 'daerah') 
-                                ? "Pilih Kewenangan spesifik (Nasional atau Kabupaten/Kota Daerah) terlebih dahulu." 
-                                : "Pilih Tahun Data terlebih dahulu."}
-                            </div>
-                          </div>
-                        );
-                      }
-
-                      return (
-                        <>
+                    {!isFilterHierarchyValid ? (
+                      <div className="bg-slate-100 border border-slate-200 rounded-lg p-4 text-center">
+                        <div className="text-[11px] font-bold text-slate-500 mb-1">Daftar Ruas Belum Tersedia</div>
+                        <div className="text-[9px] text-slate-400">
+                          {(!filterPengelola || filterPengelola === 'daerah') 
+                            ? "Pilih Kewenangan spesifik (Nasional atau Kabupaten/Kota Daerah) terlebih dahulu." 
+                            : "Pilih Tahun Data terlebih dahulu."}
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="relative">
+                          <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Cari Ruas</label>
                           <div className="relative">
-                            <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Cari Ruas</label>
-                            <div className="relative">
-                              <Search size={16} className="absolute left-3 top-2.5 text-slate-400" />
-                              <input
-                                type="text"
-                                placeholder="Ketik minimal 2 huruf..."
-                                value={searchRuasSidebar}
-                                onChange={(e) => setSearchRuasSidebar(e.target.value)}
-                                className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-md text-sm focus:outline-none focus:border-[#003B7A] focus:ring-2 focus:ring-blue-100 transition-all font-semibold"
-                              />
-                            </div>
-
-                            {/* Recommendations Dropdown */}
-                            {searchRuasSidebar.length >= 1 && (
-                              <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-[100] max-h-60 overflow-y-auto overflow-x-hidden border-t-0 p-1">
-                                {ruasData.filter(r => {
-                                  const q = searchRuasSidebar.toLowerCase();
-                                  const name = String(r.nama_jalan || r.nama || '').toLowerCase();
-                                  const code = String(r.no_ruas || '').toLowerCase();
-                                  return name.includes(q) || code.includes(q);
-                                }).slice(0, 15).map(r => (
-                                  <button
-                                    key={r.id}
-                                    onClick={() => {
-                                      setSelectedRuasId(r.no_ruas || r.id);
-                                      const auth = String(r.pengelola || 'nasional').toLowerCase();
-                                      if (auth === 'nasional') {
-                                        setFilterPengelola('nasional');
-                                      } else {
-                                        setFilterPengelola('daerah');
-                                      }
-                                      setSearchRuasSidebar('');
-                                    }}
-                                    className="w-full text-left px-3 py-1.5 hover:bg-blue-50 rounded-md flex flex-col gap-0 transition-colors group"
-                                  >
-                                    <div className="flex justify-between items-center">
-                                      <div className="text-[9px] font-black text-blue-500 uppercase">
-                                        {r.no_ruas || r.id}
-                                      </div>
-                                      <div className={`text-[8px] font-black px-1 rounded border ${String(r.pengelola).toLowerCase() === 'nasional'
-                                          ? 'bg-orange-50 text-orange-600 border-orange-100'
-                                          : 'bg-blue-50 text-blue-600 border-blue-100'
-                                        }`}>
-                                        {String(r.pengelola).toUpperCase()}
-                                      </div>
-                                    </div>
-                                    <div className="text-[11px] font-bold text-slate-700 truncate">
-                                      {r.nama_jalan === 'Tanpa Nama' ? 'Tanpa Nama' : (r.nama_jalan || r.nama || 'Tanpa Nama')}
-                                    </div>
-                                  </button>
-                                ))}
-                              </div>
-                            )}
+                            <Search size={16} className="absolute left-3 top-2.5 text-slate-400" />
+                            <input
+                              type="text"
+                              placeholder="Ketik nama/nomor ruas..."
+                              value={searchRuasSidebar}
+                              onChange={(e) => setSearchRuasSidebar(e.target.value)}
+                              className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-md text-sm focus:outline-none focus:border-[#003B7A] focus:ring-2 focus:ring-blue-100 transition-all font-semibold"
+                            />
                           </div>
+                        </div>
 
-                          <div>
-                            <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Daftar Ruas</label>
-                            <select
-                              value={selectedRuasId || ""}
-                              onChange={(e) => setSelectedRuasId(e.target.value || null)}
-                              className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-[#003B7A] focus:ring-2 focus:ring-blue-100 text-slate-700 font-semibold shadow-sm cursor-pointer"
-                            >
-                              <option value="">-- Pilih Ruas Jalan --</option>
-                              {(() => {
-                                const filtered = ruasData.filter(r => {
-                                  const p = String(r.pengelola || 'nasional').toLowerCase();
-                                  const k = String(r.kabupaten_kota || '').toLowerCase();
-                                  const q = searchRuasSidebar.toLowerCase();
-                                  let matchesAuthority = true;
-                                  if (filterPengelola === 'nasional') {
-                                    matchesAuthority = p === 'nasional';
-                                  } else if (filterPengelola === 'daerah') {
-                                    matchesAuthority = p !== 'nasional';
-                                  } else if (filterPengelola) {
-                                    matchesAuthority = p === filterPengelola || k === filterPengelola;
-                                  }
-                                  const matchesSearch = q === '' ||
-                                    String(r.no_ruas || '').toLowerCase().includes(q) ||
-                                    String(r.nama_jalan || r.nama || '').toLowerCase().includes(q);
-                                  return matchesAuthority && matchesSearch;
-                                });
-                                return (
-                                  <>
-                                    {filtered.map(r => (
-                                      <option key={r.id} value={r.no_ruas || r.id}>
-                                        {r.no_ruas || r.id} : {r.nama_jalan === 'Tanpa Nama' ? 'Tanpa Nama' : (r.nama_jalan || r.nama || 'Tanpa Nama')}
-                                      </option>
-                                    ))}
-                                  </>
-                                );
-                              })()}
-                            </select>
-                          </div>
-                        </>
-                      );
-                    })()}
+                        <div>
+                          <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Daftar Ruas ({sidebarRuasList.length})</label>
+                          <select
+                            value={selectedRuasId || ""}
+                            onChange={(e) => setSelectedRuasId(e.target.value || null)}
+                            className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-[#003B7A] focus:ring-2 focus:ring-blue-100 text-slate-700 font-semibold shadow-sm cursor-pointer"
+                          >
+                            <option value="">-- Pilih Ruas Jalan --</option>
+                            {sidebarRuasList.map(r => (
+                              <option key={r.id} value={r.no_ruas || r.id}>
+                                {r.no_ruas || r.id} : {r.nama_jalan === 'Tanpa Nama' ? 'Tanpa Nama' : (r.nama_jalan || r.nama || 'Tanpa Nama')}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </>
+                    )}
 
                     <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
                       <label className="text-xs font-bold text-slate-500 uppercase mb-3 block">Mode Tampilan</label>
@@ -1251,45 +1245,56 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                         </select>
                       </div>
 
-                      <div>
-                        <label className="text-xs font-black text-slate-400 uppercase mb-2 block">Wilayah / PPK</label>
-                        <select
-                          value={anaFilterKecamatan}
-                          onChange={e => setAnaFilterKecamatan(e.target.value)}
-                          className="w-full text-xs py-2.5 px-3 bg-white border border-slate-200 rounded-lg font-bold text-slate-600 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all cursor-pointer"
-                        >
-                          <option value="all">Semua Wilayah</option>
-                          {anaPpks.map(p => <option key={p} value={p}>{p}</option>)}
-                        </select>
-                      </div>
+                      {!isFilterHierarchyValid ? (
+                        <div className="bg-slate-100 border border-slate-200 rounded-lg p-4 text-center">
+                          <div className="text-[11px] font-bold text-slate-500 mb-1">Filter Lanjutan Terkunci</div>
+                          <div className="text-[9px] text-slate-400">
+                            Pilih Kewenangan spesifik dan Tahun Data di menu Peta Utama atau di atas terlebih dahulu.
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div>
+                            <label className="text-xs font-black text-slate-400 uppercase mb-2 block">Wilayah / PPK</label>
+                            <select
+                              value={anaFilterKecamatan}
+                              onChange={e => setAnaFilterKecamatan(e.target.value)}
+                              className="w-full text-xs py-2.5 px-3 bg-white border border-slate-200 rounded-lg font-bold text-slate-600 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all cursor-pointer"
+                            >
+                              <option value="all">Semua Wilayah</option>
+                              {anaPpks.map(p => <option key={p} value={p}>{p}</option>)}
+                            </select>
+                          </div>
 
-                      <div>
-                        <label className="text-xs font-black text-slate-400 uppercase mb-2 block">Pilih Ruas</label>
-                        <select
-                          value={anaFilterRuas}
-                          onChange={e => setAnaFilterRuas(e.target.value)}
-                          className="w-full text-xs py-2.5 px-3 bg-white border border-slate-200 rounded-lg font-bold text-slate-600 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all cursor-pointer"
-                        >
-                          <option value="all">Semua Ruas</option>
-                          {anaRuasOptions.map(r => <option key={r.no_ruas} value={r.no_ruas}>{r.no_ruas} : {r.nama_jalan}</option>)}
-                        </select>
-                      </div>
+                          <div>
+                            <label className="text-xs font-black text-slate-400 uppercase mb-2 block">Pilih Ruas</label>
+                            <select
+                              value={anaFilterRuas}
+                              onChange={e => setAnaFilterRuas(e.target.value)}
+                              className="w-full text-xs py-2.5 px-3 bg-white border border-slate-200 rounded-lg font-bold text-slate-600 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all cursor-pointer"
+                            >
+                              <option value="all">Semua Ruas</option>
+                              {anaRuasOptions.map(r => <option key={r.no_ruas} value={r.no_ruas}>{r.no_ruas} : {r.nama_jalan}</option>)}
+                            </select>
+                          </div>
 
-                      <div>
-                        <label className="text-xs font-black text-slate-400 uppercase mb-2 block">Kondisi</label>
-                        <select
-                          value={anaFilterStatus}
-                          onChange={e => setAnaFilterStatus(e.target.value)}
-                          className="w-full text-xs py-2.5 px-3 bg-white border border-slate-200 rounded-lg font-bold text-slate-600 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all cursor-pointer"
-                        >
-                          <option value="all">Semua Kondisi</option>
-                          <option value="Baik">BAIK</option>
-                          <option value="Sedang">SEDANG</option>
-                          <option value="Marginal">MARGINAL</option>
-                          <option value="Rusak Ringan">RUSAK RINGAN</option>
-                          <option value="Rusak Berat">RUSAK BERAT</option>
-                        </select>
-                      </div>
+                          <div>
+                            <label className="text-xs font-black text-slate-400 uppercase mb-2 block">Kondisi</label>
+                            <select
+                              value={anaFilterStatus}
+                              onChange={e => setAnaFilterStatus(e.target.value)}
+                              className="w-full text-xs py-2.5 px-3 bg-white border border-slate-200 rounded-lg font-bold text-slate-600 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all cursor-pointer"
+                            >
+                              <option value="all">Semua Kondisi</option>
+                              <option value="Baik">BAIK</option>
+                              <option value="Sedang">SEDANG</option>
+                              <option value="Marginal">MARGINAL</option>
+                              <option value="Rusak Ringan">RUSAK RINGAN</option>
+                              <option value="Rusak Berat">RUSAK BERAT</option>
+                            </select>
+                          </div>
+                        </>
+                      )}
                     </div>
 
                     <div className="p-4 bg-[#003B7A] rounded-xl text-white shadow-lg overflow-hidden relative">
@@ -1329,21 +1334,30 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                         </select>
                       </div>
 
-                      <div>
-                        <label className="text-xs font-black text-slate-400 uppercase mb-2 block">Filter Ruas</label>
-                        <select
-                          value={treFilterRuas}
-                          onChange={e => { setTreFilterRuas(e.target.value); setTreFilterSegmen('all'); }}
-                          className="w-full text-xs py-2.5 px-3 bg-white border border-slate-200 rounded-lg font-bold text-[#003B7A] shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all cursor-pointer"
-                        >
-                          <option value="all">Semua Ruas</option>
-                          {treRuasOptions.map(r => <option key={r.no_ruas} value={r.no_ruas}>{r.no_ruas} : {r.nama_jalan}</option>)}
-                        </select>
-                      </div>
+                      {!isFilterHierarchyValid ? (
+                        <div className="bg-slate-100 border border-slate-200 rounded-lg p-4 text-center">
+                          <div className="text-[11px] font-bold text-slate-500 mb-1">Filter Lanjutan Terkunci</div>
+                          <div className="text-[9px] text-slate-400">
+                            Pilih Kewenangan spesifik dan Tahun Data di menu Peta Utama atau di atas terlebih dahulu.
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div>
+                            <label className="text-xs font-black text-slate-400 uppercase mb-2 block">Filter Ruas</label>
+                            <select
+                              value={treFilterRuas}
+                              onChange={e => { setTreFilterRuas(e.target.value); setTreFilterSegmen('all'); }}
+                              className="w-full text-xs py-2.5 px-3 bg-white border border-slate-200 rounded-lg font-bold text-[#003B7A] shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition-all cursor-pointer"
+                            >
+                              <option value="all">Semua Ruas</option>
+                              {treRuasOptions.map(r => <option key={r.no_ruas} value={r.no_ruas}>{r.no_ruas} : {r.nama_jalan}</option>)}
+                            </select>
+                          </div>
 
-                      <div>
-                        <label className="text-xs font-black text-slate-400 uppercase mb-2 block">Pilih Segmen</label>
-                        <select
+                          <div>
+                            <label className="text-xs font-black text-slate-400 uppercase mb-2 block">Pilih Segmen</label>
+                            <select
                           value={treFilterSegmen}
                           onChange={e => setTreFilterSegmen(e.target.value)}
                           disabled={treFilterRuas === 'all'}
@@ -1401,6 +1415,8 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                           <option value="RKN">Rekonstruksi (RKN)</option>
                         </select>
                       </div>
+                        </>
+                      )}
                     </div>
 
                     <div className="bg-orange-50 p-4 rounded-xl border border-orange-100 text-orange-800 shadow-sm">
@@ -1447,32 +1463,23 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                 </div>
               </div>
             )}
-            {(() => {
-              const isHierarchyValid = 
-                (filterPengelola === 'nasional' && year) || 
-                (filterPengelola && filterPengelola !== 'daerah' && filterPengelola !== 'nasional' && year);
-              
-              if (!selectedRuasId && !isHierarchyValid && !isMapLoading) {
-                return (
-                  <div className="absolute inset-0 z-[500] bg-slate-50/80 backdrop-blur-sm flex items-center justify-center pointer-events-none">
-                    <div className="bg-white px-8 py-6 rounded-2xl shadow-xl border border-blue-100 flex flex-col items-center gap-4 text-center max-w-md">
-                      <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center text-blue-500 mb-2">
-                        <Filter size={32} />
-                      </div>
-                      <div>
-                        <h3 className="text-lg font-black text-[#003B7A] mb-2 uppercase">Filter Belum Lengkap</h3>
-                        <p className="text-sm font-medium text-slate-500">
-                          {(!filterPengelola || filterPengelola === 'daerah') 
-                            ? "Silakan pilih Kewenangan Nasional atau Wilayah Kabupaten/Kota spesifik untuk menampilkan data pada peta." 
-                            : "Silakan pilih Tahun Data untuk menampilkan kondisi ruas."}
-                        </p>
-                      </div>
-                    </div>
+            {!selectedRuasId && !isFilterHierarchyValid && !isMapLoading && (
+              <div className="absolute inset-0 z-[500] bg-slate-50/80 backdrop-blur-sm flex items-center justify-center pointer-events-none">
+                <div className="bg-white px-8 py-6 rounded-2xl shadow-xl border border-blue-100 flex flex-col items-center gap-4 text-center max-w-md">
+                  <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center text-blue-500 mb-2">
+                    <Filter size={32} />
                   </div>
-                );
-              }
-              return null;
-            })()}
+                  <div>
+                    <h3 className="text-lg font-black text-[#003B7A] mb-2 uppercase">Filter Belum Lengkap</h3>
+                    <p className="text-sm font-medium text-slate-500">
+                      {(!filterPengelola || filterPengelola === 'daerah') 
+                        ? "Silakan pilih Kewenangan Nasional atau Wilayah Kabupaten/Kota spesifik untuk menampilkan data pada peta." 
+                        : "Silakan pilih Tahun Data untuk menampilkan kondisi ruas."}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
             <div id="gis-map" className="w-full h-full z-0"></div>
 
             {/* Unified Map Controls */}
@@ -1490,42 +1497,12 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                 </select>
               </div>
 
-              <div className="bg-white rounded-lg shadow-xl border border-slate-200 p-1 flex flex-col gap-1 pointer-events-auto overflow-hidden">
-                <div className="flex items-center gap-0.5">
-                  <button
-                    onClick={() => setFilterPengelola('')}
-                    className={`flex-1 px-3 py-1.5 rounded text-[9px] font-black uppercase transition-all ${!filterPengelola ? 'bg-[#003B7A] text-white shadow-md' : 'text-slate-400 hover:bg-slate-50'}`}
-                  >
-                    Semua
-                  </button>
-                  <button
-                    onClick={() => setFilterPengelola('nasional')}
-                    className={`flex-1 px-3 py-1.5 rounded text-[9px] font-black uppercase transition-all ${filterPengelola === 'nasional' ? 'bg-[#003B7A] text-white shadow-md' : 'text-slate-400 hover:bg-slate-50'}`}
-                  >
-                    Nasional
-                  </button>
-                  <button
-                    onClick={() => setFilterPengelola('daerah')}
-                    className={`flex-1 px-3 py-1.5 rounded text-[9px] font-black uppercase transition-all ${['daerah', 'provinsi', 'kabupaten', 'kota'].includes(filterPengelola) ? 'bg-[#003B7A] text-white shadow-md' : 'text-slate-400 hover:bg-slate-50'}`}
-                  >
-                    Daerah
-                  </button>
+              {/* Filter info badge */}
+              <div className="bg-white rounded-lg shadow-xl border border-slate-200 p-2 min-w-[140px] pointer-events-auto">
+                <label className="text-[10px] font-black text-slate-400 uppercase px-2 mb-1 block">Kewenangan</label>
+                <div className="text-[10px] font-bold text-[#003B7A] px-2 py-1">
+                  {filterPengelola ? filterPengelola.toUpperCase() : 'BELUM DIPILIH'}
                 </div>
-
-                {['daerah', 'provinsi', 'kabupaten', 'kota'].includes(filterPengelola) || localAuthorities.includes(filterPengelola) ? (
-                  <div className="border-t border-slate-100 p-1 animate-in fade-in slide-in-from-top-1 duration-200">
-                    <select
-                      value={['provinsi', 'kabupaten', 'kota'].includes(filterPengelola) || localAuthorities.includes(filterPengelola) ? filterPengelola : 'daerah'}
-                      onChange={(e) => setFilterPengelola(e.target.value as any)}
-                      className="w-full text-[9px] py-1 px-1.5 bg-slate-50 border border-slate-100 rounded font-black text-[#003B7A] focus:outline-none"
-                    >
-                      <option value="daerah">SELURUH DAERAH</option>
-                      {localAuthorities.filter(p => !['provinsi', 'kabupaten', 'kota'].includes(p)).map(p => (
-                        <option key={p} value={p}>{p.toUpperCase()}</option>
-                      ))}
-                    </select>
-                  </div>
-                ) : null}
               </div>
             </div>
 
@@ -1933,37 +1910,9 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                     >
                       <option value="" disabled className="text-slate-400">Pilih...</option>
                       <option value="all" className="text-slate-900">SEMUA RUAS</option>
-                      {(() => {
-                        const filtered = ruasData.filter(r => {
-                          const p = String(r.pengelola || 'nasional').toLowerCase();
-                          const k = String(r.kabupaten_kota || '').toLowerCase();
-
-                          if (dbFilterPengelola !== 'all') {
-                            if (dbFilterPengelola === 'nasional' && p !== 'nasional') return false;
-                            if (dbFilterPengelola === 'daerah' && p === 'nasional') return false;
-                          }
-
-                          if (dbFilterKabupatenKota !== 'all') {
-                            if (p !== dbFilterKabupatenKota && k !== dbFilterKabupatenKota) return false;
-                          }
-
-                          const q = searchSegQuery.toLowerCase();
-                          if (q) {
-                            const matchSearch = String(r.no_ruas || '').toLowerCase().includes(q) ||
-                                                String(r.nama_jalan || '').toLowerCase().includes(q);
-                            if (!matchSearch) return false;
-                          }
-
-                          return true;
-                        });
-                        return (
-                          <>
-                            {filtered.map(r => (
-                              <option key={r.id} value={r.no_ruas} className="text-slate-900">{r.no_ruas} : {r.nama_jalan === 'Tanpa Nama' ? 'Tanpa Nama' : r.nama_jalan}</option>
-                            ))}
-                          </>
-                        );
-                      })()}
+                      {dbRuasList.map(r => (
+                        <option key={r.id} value={r.no_ruas} className="text-slate-900">{r.no_ruas} : {r.nama_jalan === 'Tanpa Nama' ? 'Tanpa Nama' : r.nama_jalan}</option>
+                      ))}
                     </select>
                   </div>
 
@@ -2052,41 +2001,27 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                     })()}
                   </thead>
                   <tbody>
-                    {(() => {
-                      const isDbHierarchyValid = 
-                        (dbFilterPengelola === 'nasional' && selectedDbYear) || 
-                        (dbFilterPengelola === 'daerah' && dbFilterKabupatenKota !== 'all' && selectedDbYear);
-                      
-                      if (!isDbHierarchyValid) {
-                        return (
-                          <tr>
-                            <td colSpan={15} className="py-12 text-center text-slate-500">
-                              <div className="flex flex-col items-center gap-3">
-                                <Filter size={40} className="text-blue-300" />
-                                <div className="text-base font-bold text-slate-700">Filter Belum Lengkap</div>
-                                <div className="text-xs opacity-75 max-w-md">
-                                  Untuk mencegah browser lambat, silakan pilih <b>Kewenangan Nasional</b> atau <b>Wilayah Kabupaten/Kota spesifik</b> pada filter di atas.
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      }
-                      return null;
-                    })()}
-                    {(() => {
-                      const isDbHierarchyValid = 
-                        (dbFilterPengelola === 'nasional' && selectedDbYear) || 
-                        (dbFilterPengelola === 'daerah' && dbFilterKabupatenKota !== 'all' && selectedDbYear);
-                      if (!isDbHierarchyValid) return null;
-                      
-                      return filteredEditableSegments.length === 0 ? (
+                    {!isDbHierarchyValid && (
+                      <tr>
+                        <td colSpan={15} className="py-12 text-center text-slate-500">
+                          <div className="flex flex-col items-center gap-3">
+                            <Filter size={40} className="text-blue-300" />
+                            <div className="text-base font-bold text-slate-700">Filter Belum Lengkap</div>
+                            <div className="text-xs opacity-75 max-w-md">
+                              Untuk mencegah browser lambat, silakan pilih <b>Kewenangan Nasional</b> atau <b>Wilayah Kabupaten/Kota spesifik</b> pada filter di atas.
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    {isDbHierarchyValid && filteredEditableSegments.length === 0 && (
                       <tr>
                         <td colSpan={15} className="py-8 text-center text-slate-500">
                           Tidak ada data yang sesuai dengan pencarian Anda.
                         </td>
                       </tr>
-                    ) : paginatedSegments.map((s) => (
+                    )}
+                    {isDbHierarchyValid && paginatedSegments.map((s) => (
                       <tr key={s.id} className={`hover:bg-blue-50/50 ${selectedIds.has(s.id) ? 'bg-blue-50' : ''}`}>
                         <td className="p-1 border-b text-center">
                           <input
@@ -2226,8 +2161,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                           {s.tahun}
                         </td>
                       </tr>
-                    ));
-                    })()}
+                    ))}
                   </tbody>
                 </table>
               </div>
