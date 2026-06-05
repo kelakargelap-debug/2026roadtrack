@@ -207,14 +207,11 @@ const useLeaflet = () => {
 const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
   const isLeafletLoaded = useLeaflet();
   const mapRef = useRef<any>(null);
-  const traseLayerGroupRef = useRef<any>(null);
-  const kondisiLayerGroupRef = useRef<any>(null);
-  const treatmentLayerGroupRef = useRef<any>(null);
-  const layerControlRef = useRef<any>(null);
+  const mapLayersRef = useRef<any>(null);
 
   const watchIdRef = useRef<number | null>(null);
   const gpsMarkerRef = useRef<any>(null);
-  const gpsCircleRef = useRef<any>(null);
+  const gpsZoomHandlerRef = useRef<any>(null);
 
   const [isGpsActive, setIsGpsActive] = useState(false);
   const [gpsError, setGpsError] = useState<string | null>(null);
@@ -933,7 +930,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
     const L = (window as any).L;
     if (!L) return;
 
-    // Default center Ambon
+    // Default center Ambon — canvas renderer ONLY for road polylines
     const map = L.map('gis-map', {
       zoomControl: false,
       preferCanvas: true,
@@ -946,31 +943,6 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
 
-    // Buat pane terpisah untuk GPS agar tidak bertabrakan dengan polyline ruas (canvas)
-    map.createPane('gpsPane');
-    map.getPane('gpsPane').style.zIndex = '650';
-
-    // Buat Layer Groups untuk memisahkan Trase, Kondisi, dan Penanganan
-    const traseGroup = L.featureGroup();
-    const kondisiGroup = L.featureGroup();
-    const treatmentGroup = L.featureGroup();
-
-    // Secara default, tampilkan Trase dan Kondisi di peta
-    traseGroup.addTo(map);
-    kondisiGroup.addTo(map);
-
-    // Tambahkan Layer Control di pojok kiri atas
-    const layerControl = L.control.layers(null, {
-      "Trase Jalan (Base)": traseGroup,
-      "Kondisi Jalan (IRI/SDI)": kondisiGroup,
-      "Program Penanganan": treatmentGroup
-    }, { position: 'topleft', collapsed: false }).addTo(map);
-
-    traseLayerGroupRef.current = traseGroup;
-    kondisiLayerGroupRef.current = kondisiGroup;
-    treatmentLayerGroupRef.current = treatmentGroup;
-    layerControlRef.current = layerControl;
-
     map.on('dragstart', () => {
       setFollowUserGps(false);
     });
@@ -979,28 +951,11 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
     return () => {
       if (mapRef.current) {
-        if (layerControlRef.current) {
-          try { layerControlRef.current.remove(); } catch (e) {}
-          layerControlRef.current = null;
-        }
         mapRef.current.remove();
         mapRef.current = null;
       }
     };
   }, [isLeafletLoaded]);
-
-  // Sinkronisasi layer peta dengan state 'mode' dari React
-  useEffect(() => {
-    if (!mapRef.current) return;
-
-    if (mode === 'iri') {
-      if (treatmentLayerGroupRef.current) mapRef.current.removeLayer(treatmentLayerGroupRef.current);
-      if (kondisiLayerGroupRef.current) kondisiLayerGroupRef.current.addTo(mapRef.current);
-    } else if (mode === 'treatment') {
-      if (kondisiLayerGroupRef.current) mapRef.current.removeLayer(kondisiLayerGroupRef.current);
-      if (treatmentLayerGroupRef.current) treatmentLayerGroupRef.current.addTo(mapRef.current);
-    }
-  }, [mode]);
 
   // Efek untuk memantau pergerakan koordinat GPS real-time
   useEffect(() => {
@@ -1011,15 +966,16 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
         watchIdRef.current = null;
       }
       
-      // Bersihkan Marker & Circle Penanda di Peta
+      // Bersihkan Marker GPS (100% DOM-based, tidak ada circle/SVG)
       if (gpsMarkerRef.current && mapRef.current) {
+        // Hapus zoom listener
+        if (gpsZoomHandlerRef.current) {
+          mapRef.current.off('zoomend', gpsZoomHandlerRef.current);
+          gpsZoomHandlerRef.current = null;
+        }
         try { mapRef.current.removeLayer(gpsMarkerRef.current); } catch (e) {}
       }
-      if (gpsCircleRef.current && mapRef.current) {
-        try { mapRef.current.removeLayer(gpsCircleRef.current); } catch (e) {}
-      }
       gpsMarkerRef.current = null;
-      gpsCircleRef.current = null;
       setGpsCoords(null);
       setGpsError(null);
       if (isGpsActive && mainView !== 'map') {
@@ -1069,37 +1025,71 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
     };
   }, [isGpsActive, mainView]);
 
-  // Re-render marker GPS secara langsung pada perubahan koordinat terbaru
+  // GPS Marker — 100% DOM-based (divIcon + CSS circle)
+  // Tidak menggunakan L.circle/L.svg sama sekali, sehingga ZERO interaksi dengan canvas renderer ruas jalan.
   useEffect(() => {
     if (!isLeafletLoaded || !mapRef.current || !gpsCoords) return;
 
     const L = (window as any).L;
     if (!L) return;
 
-    try {
-      // 1. Gambar/Update Penanda Biru dengan Gelombang Pulsasi
-      if (!gpsMarkerRef.current) {
-        const gpsIcon = L.divIcon({
-          className: 'custom-gps-marker',
-          html: `
-            <div style="position: relative; width: 16px; height: 16px;">
-              <div style="position: absolute; top: 0; left: 0; width: 16px; height: 16px; background-color: #3b82f6; border-radius: 50%; border: 2.5px solid #ffffff; box-shadow: 0 0 6px rgba(59, 130, 246, 0.8); z-index: 10;"></div>
-              <div class="gps-pulse-effect" style="position: absolute; top: -7px; left: -7px; width: 30px; height: 30px; background-color: rgba(59, 130, 246, 0.4); border-radius: 50%; z-index: 5;"></div>
-            </div>
-          `,
-          iconSize: [30, 30],
-          iconAnchor: [15, 15]
-        });
+    // Hitung pixel radius dari accuracy berdasarkan zoom level saat ini
+    const calcPixelRadius = () => {
+      if (!mapRef.current || !gpsCoords) return 30;
+      const zoom = mapRef.current.getZoom();
+      const metersPerPixel = 40075016.686 * Math.abs(Math.cos(gpsCoords.lat * Math.PI / 180)) / Math.pow(2, zoom + 8);
+      return Math.max(Math.round(gpsCoords.accuracy / metersPerPixel), 16);
+    };
 
-        gpsMarkerRef.current = L.marker([gpsCoords.lat, gpsCoords.lng], { icon: gpsIcon, pane: 'gpsPane' }).addTo(mapRef.current);
+    // Buat icon GPS dengan accuracy circle sebagai CSS div
+    const buildGpsIcon = () => {
+      const pxRadius = calcPixelRadius();
+      const iconSize = Math.max(pxRadius * 2, 30);
+      const dotSize = 16;
+      const pulseSize = 30;
+      const dotOffset = (iconSize - dotSize) / 2;
+      const pulseOffset = (iconSize - pulseSize) / 2;
+
+      return L.divIcon({
+        className: 'custom-gps-marker',
+        html: `
+          <div style="position:relative;width:${iconSize}px;height:${iconSize}px;pointer-events:none;">
+            <div style="position:absolute;top:0;left:0;width:${iconSize}px;height:${iconSize}px;background:rgba(59,130,246,0.10);border:1.5px dashed rgba(59,130,246,0.45);border-radius:50%;box-sizing:border-box;"></div>
+            <div style="position:absolute;top:${dotOffset}px;left:${dotOffset}px;width:${dotSize}px;height:${dotSize}px;background:#3b82f6;border-radius:50%;border:2.5px solid #fff;box-shadow:0 0 6px rgba(59,130,246,0.8);z-index:10;"></div>
+            <div class="gps-pulse-effect" style="position:absolute;top:${pulseOffset}px;left:${pulseOffset}px;width:${pulseSize}px;height:${pulseSize}px;background:rgba(59,130,246,0.4);border-radius:50%;z-index:5;"></div>
+          </div>
+        `,
+        iconSize: [iconSize, iconSize],
+        iconAnchor: [iconSize / 2, iconSize / 2]
+      });
+    };
+
+    try {
+      if (!gpsMarkerRef.current) {
+        // Buat marker baru — marker pane (DOM overlay), BUKAN canvas
+        gpsMarkerRef.current = L.marker([gpsCoords.lat, gpsCoords.lng], {
+          icon: buildGpsIcon(),
+          zIndexOffset: 1000 // tampilkan di atas polylines
+        }).addTo(mapRef.current);
+
         gpsMarkerRef.current.bindPopup(`
           <div class="font-sans text-xs p-1">
             <b class="text-[#003B7A] block mb-0.5">Lokasi Saya</b>
             <span class="text-slate-500 text-[10px] block">Akurasi: ${gpsCoords.accuracy.toFixed(1)} meter</span>
           </div>
         `);
+
+        // Update ukuran accuracy circle CSS saat zoom berubah
+        const onZoomEnd = () => {
+          if (gpsMarkerRef.current && gpsCoords) {
+            gpsMarkerRef.current.setIcon(buildGpsIcon());
+          }
+        };
+        gpsZoomHandlerRef.current = onZoomEnd;
+        mapRef.current.on('zoomend', onZoomEnd);
       } else {
         gpsMarkerRef.current.setLatLng([gpsCoords.lat, gpsCoords.lng]);
+        gpsMarkerRef.current.setIcon(buildGpsIcon());
         gpsMarkerRef.current.setPopupContent(`
           <div class="font-sans text-xs p-1">
             <b class="text-[#003B7A] block mb-0.5">Lokasi Saya</b>
@@ -1108,29 +1098,12 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
         `);
       }
 
-      // 2. Gambar/Update Area Radius Akurasi (Akurasi GPS)
-      if (!gpsCircleRef.current) {
-        gpsCircleRef.current = L.circle([gpsCoords.lat, gpsCoords.lng], {
-          radius: gpsCoords.accuracy,
-          color: '#3b82f6',
-          fillColor: '#3b82f6',
-          fillOpacity: 0.12,
-          weight: 1.5,
-          dashArray: '3, 4',
-          pane: 'gpsPane',
-          renderer: L.svg({ pane: 'gpsPane' })
-        }).addTo(mapRef.current);
-      } else {
-        gpsCircleRef.current.setLatLng([gpsCoords.lat, gpsCoords.lng]);
-        gpsCircleRef.current.setRadius(gpsCoords.accuracy);
-      }
-
-      // 3. Fokus Arah Kamera Otomatis secara mulus
+      // Fokus Arah Kamera Otomatis
       if (followUserGps) {
         mapRef.current.setView([gpsCoords.lat, gpsCoords.lng], Math.max(mapRef.current.getZoom(), 15));
       }
     } catch (err) {
-      console.error("Leaflet drawing error for GPS:", err);
+      console.error("Leaflet GPS marker error:", err);
     }
   }, [gpsCoords, followUserGps, isLeafletLoaded]);
 
@@ -1162,12 +1135,12 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
       try {
         const L = (window as any).L;
         if (!L || renderAbortRef.current) return;
-        if (!traseLayerGroupRef.current || !kondisiLayerGroupRef.current || !treatmentLayerGroupRef.current) return;
 
-        // Clear old layers from all groups
-        traseLayerGroupRef.current.clearLayers();
-        kondisiLayerGroupRef.current.clearLayers();
-        treatmentLayerGroupRef.current.clearLayers();
+        // Clear old road layers
+        if (mapLayersRef.current) {
+          mapRef.current.removeLayer(mapLayersRef.current);
+          mapLayersRef.current = null;
+        }
 
         // Prepare ruas to render
         let ruasToRender: any[] = [];
@@ -1185,13 +1158,12 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
         }
 
         // --- PHASE 1: Pre-compute all segment data in one O(n) pass ---
-        const MAX_POLYLINES = isDetailView ? 50000 : 3000; // Limit in overview mode
+        const MAX_POLYLINES = isDetailView ? 50000 : 3000;
         
         type SegRenderItem = {
           from: [number, number];
           to: [number, number];
-          kondisiColor: string;
-          treatmentColor: string;
+          color: string;
           seg: any;
           yearData: any;
           ruasNamaJalan: string;
@@ -1211,7 +1183,6 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
           const isNasional = pengelola === 'nasional';
           const roadName = ruas.nama_jalan === 'Tanpa Nama' ? (ruas.no_ruas || 'Tanpa Nama') : (ruas.nama_jalan || ruas.no_ruas || 'Tanpa Nama');
 
-          // Pre-compute valid coords for all segments of this ruas (O(n))
           const validCoords: ([number, number] | null)[] = ruas.segments.map((seg: any) => parseCoord(seg));
 
           for (let idx = 0; idx < ruas.segments.length; idx++) {
@@ -1222,7 +1193,6 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
             allPoints.push(coord);
 
-            // Find next valid coord (pre-computed array, still O(1) amortized)
             let nextCoord: [number, number] = [coord[0] + 0.0001, coord[1] + 0.0001];
             for (let j = idx + 1; j < validCoords.length; j++) {
               if (validCoords[j]) { nextCoord = validCoords[j]!; break; }
@@ -1230,14 +1200,12 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
             const seg = ruas.segments[idx];
             const dataYear = seg[year] || { iri: 0, sdi: 0, treatment: 'NONE' };
-            const kondisiColor = getSegmentColor(ruas, seg, year, 'iri');
-            const treatmentColor = getSegmentColor(ruas, seg, year, 'treatment');
+            const color = getSegmentColor(ruas, seg, year, mode);
 
             renderItems.push({
               from: coord,
               to: nextCoord,
-              kondisiColor: kondisiColor || '#CBD5E1',
-              treatmentColor: treatmentColor || '#CBD5E1',
+              color: color || '#334155',
               seg,
               yearData: dataYear,
               ruasNamaJalan: roadName,
@@ -1256,8 +1224,9 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
           return;
         }
 
-        // --- PHASE 2: Create Leaflet objects in chunks to avoid UI freeze ---
+        // --- PHASE 2: Create Leaflet objects in chunks ---
         const CHUNK_SIZE = 500;
+        const featureGroup = L.featureGroup();
         
         for (let i = 0; i < renderItems.length; i += CHUNK_SIZE) {
           if (renderAbortRef.current) return;
@@ -1265,8 +1234,12 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
           const chunk = renderItems.slice(i, i + CHUNK_SIZE);
           
           for (const item of chunk) {
-            // Tooltip template helper
-            const getTooltipHtml = () => {
+            const polyline = L.polyline(
+              [item.from, item.to],
+              { color: item.color, weight: 10, opacity: 1, lineCap: 'round', lineJoin: 'round' }
+            );
+
+            polyline.bindTooltip(() => {
               const conditionLabel = item.isNasional ? 'IRI' : 'SDI';
               const conditionValRaw = item.isNasional ? (item.yearData.iri || 0) : (item.yearData.sdi || 0);
               const conditionValDisplay = (typeof conditionValRaw === 'number' && !isNaN(conditionValRaw) && conditionValRaw > 0)
@@ -1292,34 +1265,11 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                   </div>
                 </div>
               `;
-            };
+            }, { sticky: true, className: 'custom-tooltip' });
 
-            // 1. Base Trase Polyline (Thicker, neutral color)
-            const trasePolyline = L.polyline(
-              [item.from, item.to],
-              { color: '#475569', weight: 8, opacity: 0.6, lineCap: 'round', lineJoin: 'round' }
-            );
-            trasePolyline.bindTooltip(getTooltipHtml, { sticky: true, className: 'custom-tooltip' });
-            traseLayerGroupRef.current.addLayer(trasePolyline);
-
-            // 2. Kondisi Polyline (Thinner, color based on condition)
-            const kondisiPolyline = L.polyline(
-              [item.from, item.to],
-              { color: item.kondisiColor, weight: 4.5, opacity: 1, lineCap: 'round', lineJoin: 'round' }
-            );
-            kondisiPolyline.bindTooltip(getTooltipHtml, { sticky: true, className: 'custom-tooltip' });
-            kondisiLayerGroupRef.current.addLayer(kondisiPolyline);
-
-            // 3. Treatment Polyline (Thinner, color based on treatment)
-            const treatmentPolyline = L.polyline(
-              [item.from, item.to],
-              { color: item.treatmentColor, weight: 4.5, opacity: 1, lineCap: 'round', lineJoin: 'round' }
-            );
-            treatmentPolyline.bindTooltip(getTooltipHtml, { sticky: true, className: 'custom-tooltip' });
-            treatmentLayerGroupRef.current.addLayer(treatmentPolyline);
+            featureGroup.addLayer(polyline);
           }
 
-          // Yield to main thread between chunks
           if (i + CHUNK_SIZE < renderItems.length) {
             await new Promise(resolve => setTimeout(resolve, 0));
           }
@@ -1327,7 +1277,10 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
         if (renderAbortRef.current) return;
 
-        // --- PHASE 3: Fit bounds ---
+        // --- PHASE 3: Add to map and fit bounds ---
+        featureGroup.addTo(mapRef.current);
+        mapLayersRef.current = featureGroup;
+
         if (allPoints.length > 0) {
           mapRef.current.fitBounds(L.latLngBounds(allPoints), { padding: [50, 50], maxZoom: 16 });
         }
@@ -1339,7 +1292,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
         }
       }
     }
-  }, [year, selectedRuasDetail, filteredRuasData, filterPengelola, isLeafletLoaded]);
+  }, [year, mode, selectedRuasDetail, filteredRuasData, filterPengelola, isLeafletLoaded]);
 
   // Fix map grey area when resizing or switching tabs
   useEffect(() => {
