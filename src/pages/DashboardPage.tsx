@@ -472,53 +472,57 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
     reader.onload = async (evt) => {
       try {
         const dataBuffer = evt.target?.result as ArrayBuffer;
-        const wb = XLSX.read(dataBuffer, { type: 'buffer' });
         
-        let bestSheetName = wb.SheetNames[0];
+        let bestSheetName = "Data";
         let bestScore = -1;
         let bestRows: any[][] = [];
 
-        // 1. Scan all sheets to find the one with the most segment/coordinates info
-        for (const name of wb.SheetNames) {
-          const ws = wb.Sheets[name];
-          const rows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
-          if (rows.length < 2) continue;
+        if (file.name.toLowerCase().endsWith('.csv')) {
+          const textDecoder = new TextDecoder('utf-8');
+          const text = textDecoder.decode(dataBuffer);
+          const lines = text.split(/\r?\n/);
+          const headerLine = lines[0] || '';
+          const delimiter = headerLine.split(';').length > headerLine.split(',').length ? ';' : ',';
+          bestRows = lines.map(line => line.split(delimiter));
+          bestSheetName = "CSV_Data";
+        } else {
+          const wb = XLSX.read(dataBuffer, { type: 'buffer' });
+          bestSheetName = wb.SheetNames[0];
 
-          let score = 0;
-          const checkRange = rows.slice(0, 5);
-          for (const row of checkRange) {
-            for (const cell of row) {
-              if (cell === null || cell === undefined) continue;
-              const cellStr = String(cell).toLowerCase();
-              if (cellStr.includes('id segmen') || cellStr.includes('segment_id') || cellStr.includes('segment id')) score += 10;
-              if (cellStr.includes('latitude') || cellStr.includes('longitude') || cellStr.includes('koordinat') || cellStr === 'lat' || cellStr === 'lon') score += 10;
-              if (cellStr.includes('sta') || cellStr === 'awal' || cellStr === 'akhir') score += 5;
-              if (cellStr.includes('no. ruas') || cellStr.includes('no ruas') || cellStr === 'ruas') score += 5;
-              if (cellStr.includes('nama ruas') || cellStr.includes('nama jalan') || cellStr.includes('nama_jalan')) score += 5;
-              if (cellStr.includes('iri') || cellStr.includes('sdi') || cellStr.includes('treatment') || cellStr.includes('penanganan')) score += 5;
+          // 1. Scan all sheets to find the one with the most segment/coordinates info
+          for (const name of wb.SheetNames) {
+            const ws = wb.Sheets[name];
+            const rows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+            if (rows.length < 2) continue;
+
+            let score = 0;
+            const checkRange = rows.slice(0, 5);
+            for (const row of checkRange) {
+              for (const cell of row) {
+                if (cell === null || cell === undefined) continue;
+                const cellStr = String(cell).toLowerCase();
+                if (cellStr.includes('id segmen') || cellStr.includes('segment_id') || cellStr.includes('segment id')) score += 10;
+                if (cellStr.includes('latitude') || cellStr.includes('longitude') || cellStr.includes('koordinat') || cellStr === 'lat' || cellStr === 'lon') score += 10;
+                if (cellStr.includes('sta') || cellStr === 'awal' || cellStr === 'akhir') score += 5;
+                if (cellStr.includes('no. ruas') || cellStr.includes('no ruas') || cellStr === 'ruas') score += 5;
+                if (cellStr.includes('nama ruas') || cellStr.includes('nama jalan') || cellStr.includes('nama_jalan')) score += 5;
+                if (cellStr.includes('iri') || cellStr.includes('sdi') || cellStr.includes('treatment') || cellStr.includes('penanganan')) score += 5;
+              }
+            }
+
+            if (score > bestScore) {
+              bestScore = score;
+              bestSheetName = name;
+              bestRows = rows;
             }
           }
 
-          if (score > bestScore) {
-            bestScore = score;
-            bestSheetName = name;
-            bestRows = rows;
+          // If no sheet matched keywords, fall back to the first sheet
+          if (bestScore === -1 && wb.SheetNames.length > 0) {
+            bestSheetName = wb.SheetNames[0];
+            const ws = wb.Sheets[bestSheetName];
+            bestRows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
           }
-        }
-
-        // If no sheet matched keywords, fall back to the first sheet
-        if (bestScore === -1 && wb.SheetNames.length > 0) {
-          bestSheetName = wb.SheetNames[0];
-          const ws = wb.Sheets[bestSheetName];
-          bestRows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
-        }
-
-        // 2. Smart CSV Semicolon split on raw rows if single column CSV
-        if (bestRows.length > 0 && bestRows[0].length === 1 && String(bestRows[0][0] || '').includes(';')) {
-          bestRows = bestRows.map(row => {
-            if (row.length === 0 || row[0] === undefined || row[0] === null) return [];
-            return String(row[0]).split(';');
-          });
         }
 
         if (bestRows.length === 0) {
