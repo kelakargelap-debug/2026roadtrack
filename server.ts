@@ -190,7 +190,7 @@ async function startServer() {
       pengelola: ["Pengelola", "pengelola", "Pengelola (nasional/Provinsi/ Kabupaten kota)"],
       kabupatenKota: ["wilayah", "Kabupaten/Kota", "Kabupaten", "Kota", "kabupaten_kota", "Wilayah"],
       noRuas: ["No Ruas", "No. Ruas", "no_ruas", "ruas_id", "ruas", "Ruas"],
-      namaJalan: ["Nama Jalan", "Nama Segmen", "Segmen", "nama_jalan", "Nama", "Jalan"],
+      namaJalan: ["Nama Jalan", "Nama Segmen", "Segmen", "nama_jalan", "Nama", "Jalan", "Nama Ruas", "Nama Jln"],
       ppk: ["PPK", "ppk", "Ppk"],
       segmentId: ["ID Segmen", "ID", "Id", "id", "Segment ID", "segment_id", "SegmenID", "No. Segmen"],
       staAwal: ["STA Awal", "STA_Awal", "sta_awal", "Awal", "STA", "sta"],
@@ -276,7 +276,16 @@ async function startServer() {
         const staAkhir = parseNum(getVal(item, mapping.staAkhir));
         const lon = parseNum(getVal(item, mapping.lon));
         const lat = parseNum(getVal(item, mapping.lat));
-        const panjang = parseNum(getVal(item, mapping.panjang));
+        
+        const panjangVal = getVal(item, mapping.panjang);
+        let panjang = parseNum(panjangVal);
+        
+        // Mencegah panjang segmen (m) terimpor sebagai panjang total ruas (km)
+        // Jika header mengandung "(m" atau nilai terlalu besar (e.g. 50 atau 100 meter, yang tidak mungkin dalam km untuk segmen 100m)
+        const isSegmentLength = typeof panjangVal === 'string' && (panjangVal.toLowerCase().includes('(m') || panjangVal.toLowerCase().includes('segmen'));
+        if (isSegmentLength || panjang > 200) {
+          panjang = NaN;
+        }
 
         insertRuas.run(noRuas, namaJalan, ppk, pengelola, kabupatenKota ? String(kabupatenKota).toLowerCase() : null, isNaN(panjang) ? null : panjang);
         const ruas = selectRuasId.get(noRuas) as any;

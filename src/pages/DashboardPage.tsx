@@ -473,34 +473,139 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
       try {
         const dataBuffer = evt.target?.result as ArrayBuffer;
         const wb = XLSX.read(dataBuffer, { type: 'buffer' });
-        const wsname = wb.SheetNames[0];
-        const ws = wb.Sheets[wsname];
-        let data = XLSX.utils.sheet_to_json(ws);
+        
+        let bestSheetName = wb.SheetNames[0];
+        let bestScore = -1;
+        let bestRows: any[][] = [];
 
-        // Smart CSV Semicolon Detection & Parsing
-        if (data.length > 0) {
-          const firstRowKeys = Object.keys(data[0] as object);
-          // If the parser read it as a single column with semicolons
-          if (firstRowKeys.length === 1 && firstRowKeys[0].includes(';')) {
-            const rawCsv = XLSX.utils.sheet_to_csv(ws);
-            const lines = rawCsv.split('\n');
-            const headers = lines[0].split(';').map(h => h.trim());
-            const parsedData = [];
-            for (let i = 1; i < lines.length; i++) {
-              if (!lines[i].trim()) continue;
-              const values = lines[i].split(';');
-              const rowObj: any = {};
-              headers.forEach((h, idx) => {
-                rowObj[h] = values[idx] !== undefined ? values[idx].trim() : '';
-              });
-              parsedData.push(rowObj);
+        // 1. Scan all sheets to find the one with the most segment/coordinates info
+        for (const name of wb.SheetNames) {
+          const ws = wb.Sheets[name];
+          const rows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+          if (rows.length < 2) continue;
+
+          let score = 0;
+          const checkRange = rows.slice(0, 5);
+          for (const row of checkRange) {
+            for (const cell of row) {
+              if (cell === null || cell === undefined) continue;
+              const cellStr = String(cell).toLowerCase();
+              if (cellStr.includes('id segmen') || cellStr.includes('segment_id') || cellStr.includes('segment id')) score += 10;
+              if (cellStr.includes('latitude') || cellStr.includes('longitude') || cellStr.includes('koordinat') || cellStr === 'lat' || cellStr === 'lon') score += 10;
+              if (cellStr.includes('sta') || cellStr === 'awal' || cellStr === 'akhir') score += 5;
+              if (cellStr.includes('no. ruas') || cellStr.includes('no ruas') || cellStr === 'ruas') score += 5;
+              if (cellStr.includes('nama ruas') || cellStr.includes('nama jalan') || cellStr.includes('nama_jalan')) score += 5;
+              if (cellStr.includes('iri') || cellStr.includes('sdi') || cellStr.includes('treatment') || cellStr.includes('penanganan')) score += 5;
             }
-            data = parsedData;
+          }
+
+          if (score > bestScore) {
+            bestScore = score;
+            bestSheetName = name;
+            bestRows = rows;
           }
         }
 
-        if (!Array.isArray(data) || data.length === 0) {
+        // If no sheet matched keywords, fall back to the first sheet
+        if (bestScore === -1 && wb.SheetNames.length > 0) {
+          bestSheetName = wb.SheetNames[0];
+          const ws = wb.Sheets[bestSheetName];
+          bestRows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+        }
+
+        // 2. Smart CSV Semicolon split on raw rows if single column CSV
+        if (bestRows.length > 0 && bestRows[0].length === 1 && String(bestRows[0][0] || '').includes(';')) {
+          bestRows = bestRows.map(row => {
+            if (row.length === 0 || row[0] === undefined || row[0] === null) return [];
+            return String(row[0]).split(';');
+          });
+        }
+
+        if (bestRows.length === 0) {
           throw new Error("File Excel kosong atau tidak terbaca.");
+        }
+
+        // 3. Merging nested headers & parsing rows
+        let data: any[] = [];
+        const row0 = bestRows[0] || [];
+        const row1 = bestRows[1] || [];
+        
+        // Detect sub-headers in row 1
+        const subheaderKeywords = ['latitude', 'longitude', 'awal', 'akhir', 'sta', 'lat', 'lon', 'x', 'y'];
+        const hasRow1Subheaders = row1.some(cell => cell && subheaderKeywords.includes(String(cell).trim().toLowerCase()));
+
+        let headers: string[] = [];
+        let startIdx = 1;
+
+        if (hasRow1Subheaders && bestRows.length > 1) {
+          let lastParent = "";
+          for (let c = 0; c < Math.max(row0.length, row1.length); c++) {
+            const p = String(row0[c] || "").trim();
+            if (p) lastParent = p;
+            const child = String(row1[c] || "").trim();
+            
+            if (child) {
+              const childLower = child.toLowerCase();
+              if (childLower === "latitude" || childLower === "lat") {
+                headers.push("Latitude");
+              } else if (childLower === "longitude" || childLower === "lon") {
+                headers.push("Longitude");
+              } else if (childLower === "awal" || childLower === "sta awal") {
+                headers.push("STA Awal");
+              } else if (childLower === "akhir" || childLower === "sta akhir") {
+                headers.push("STA Akhir");
+              } else {
+                headers.push(lastParent ? `${lastParent} ${child}` : child);
+              }
+            } else {
+              headers.push(lastParent);
+            }
+          }
+          startIdx = 2;
+        } else {
+          headers = row0.map(h => String(h || "").trim());
+          startIdx = 1;
+        }
+
+        // Detect and skip helper index guide row (like '1', '2', '3'...)
+        const nextRow = bestRows[startIdx];
+        if (nextRow) {
+          let matchCount = 0;
+          for (let i = 0; i < nextRow.length; i++) {
+            if (nextRow[i] !== undefined && nextRow[i] !== null && String(nextRow[i]).trim() === String(i + 1)) {
+              matchCount++;
+            }
+          }
+          if (matchCount >= 5) {
+            startIdx++; // Skip this guide row
+          }
+        }
+
+        // Build array of objects
+        for (let r = startIdx; r < bestRows.length; r++) {
+          const row = bestRows[r];
+          if (!row || row.length === 0) continue;
+          if (row.every(cell => cell === null || cell === undefined || String(cell).trim() === "")) continue;
+
+          const item: any = {};
+          headers.forEach((h, idx) => {
+            if (h) {
+              const cellVal = row[idx];
+              item[h] = (cellVal !== undefined && cellVal !== null) ? cellVal : "";
+            }
+          });
+
+          // If sheet name is a year (e.g. 2026), auto-add as Tahun if not present
+          const sheetYearMatch = bestSheetName.match(/^20\d{2}$/);
+          if (sheetYearMatch && (item["Tahun"] === undefined || item["Tahun"] === "")) {
+            item["Tahun"] = sheetYearMatch[0];
+          }
+
+          data.push(item);
+        }
+
+        if (data.length === 0) {
+          throw new Error("Tidak ada baris data yang valid untuk diimpor.");
         }
 
         setUploadProgress(20); // Data parsed
@@ -511,7 +616,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
         setUploadProgress(40); // Sending...
 
         const res = await axios.post('/api/import/save', { data }, {
-          timeout: 60000 // 60 seconds timeout for 4000 rows
+          timeout: 60000 // 60 seconds timeout for large datasets
         });
 
         setUploadProgress(100);
@@ -519,7 +624,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
           setIsUploadModalOpen(false);
           setUploadProgress(null);
           const dbC = res.data.db_counts || {};
-          alert(`Berhasil mengunggah ${res.data.count} baris data!\n\nVerifikasi Database Utama:\n- Total Master Ruas: ${dbC.ruas || 0}\n- Total Segmen: ${dbC.segmen || 0}\n- Record Kondisi Tahunan: ${dbC.annual || 0} baris`);
+          alert(`Berhasil mengunggah ${res.data.count} baris data dari Sheet "${bestSheetName}"!\n\nVerifikasi Database Utama:\n- Total Master Ruas: ${dbC.ruas || 0}\n- Total Segmen: ${dbC.segmen || 0}\n- Record Kondisi Tahunan: ${dbC.annual || 0} baris`);
           fetchData();
         }, 800);
       } catch (error: any) {
