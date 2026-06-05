@@ -940,6 +940,10 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
 
+    // Buat pane terpisah untuk GPS agar tidak bertabrakan dengan polyline ruas (canvas)
+    map.createPane('gpsPane');
+    map.getPane('gpsPane').style.zIndex = '650';
+
     map.on('dragstart', () => {
       setFollowUserGps(false);
     });
@@ -1043,7 +1047,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
           iconAnchor: [15, 15]
         });
 
-        gpsMarkerRef.current = L.marker([gpsCoords.lat, gpsCoords.lng], { icon: gpsIcon }).addTo(mapRef.current);
+        gpsMarkerRef.current = L.marker([gpsCoords.lat, gpsCoords.lng], { icon: gpsIcon, pane: 'gpsPane' }).addTo(mapRef.current);
         gpsMarkerRef.current.bindPopup(`
           <div class="font-sans text-xs p-1">
             <b class="text-[#003B7A] block mb-0.5">Lokasi Saya</b>
@@ -1068,7 +1072,9 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
           fillColor: '#3b82f6',
           fillOpacity: 0.12,
           weight: 1.5,
-          dashArray: '3, 4'
+          dashArray: '3, 4',
+          pane: 'gpsPane',
+          renderer: L.svg({ pane: 'gpsPane' })
         }).addTo(mapRef.current);
       } else {
         gpsCircleRef.current.setLatLng([gpsCoords.lat, gpsCoords.lng]);
