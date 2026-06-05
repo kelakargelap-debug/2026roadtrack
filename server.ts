@@ -325,6 +325,8 @@ async function startServer() {
     const cleanTahunLabel = (label: any) => {
         let s = String(label || "").trim();
         if (s.endsWith(".0")) s = s.slice(0, -2);
+        const m = s.match(/^(20\d{2})/);
+        if (m) return m[1];
         return s || "-";
     };
 
@@ -366,7 +368,8 @@ async function startServer() {
         if (!segmentIdVal) missingKeys.add("ID Segmen");
 
         const noRuas = String(noRuasVal || "");
-        const segmentId = String(segmentIdVal || "");
+        // Normalize segment ID by removing dots so 6000412K.100 matches existing 6000412K100 in DB
+        const segmentId = String(segmentIdVal || "").replace(/\./g, "");
         const namaJalan = String(getVal(item, mapping.namaJalan) || "Tanpa Nama");
         const ppk = String(getVal(item, mapping.ppk) || "");
         
