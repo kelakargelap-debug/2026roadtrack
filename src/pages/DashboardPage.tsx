@@ -207,7 +207,10 @@ const useLeaflet = () => {
 const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
   const isLeafletLoaded = useLeaflet();
   const mapRef = useRef<any>(null);
-  const mapLayersRef = useRef<any>(null);
+  const traseLayerGroupRef = useRef<any>(null);
+  const kondisiLayerGroupRef = useRef<any>(null);
+  const treatmentLayerGroupRef = useRef<any>(null);
+  const layerControlRef = useRef<any>(null);
 
   const watchIdRef = useRef<number | null>(null);
   const gpsMarkerRef = useRef<any>(null);
@@ -927,15 +930,18 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
   useEffect(() => {
     if (!isLeafletLoaded || mapRef.current) return;
 
+    const L = (window as any).L;
+    if (!L) return;
+
     // Default center Ambon
-    const map = (window as any).L.map('gis-map', {
+    const map = L.map('gis-map', {
       zoomControl: false,
       preferCanvas: true,
-      renderer: (window as any).L.canvas()
+      renderer: L.canvas()
     }).setView([-3.67, 128.20], 13);
-    (window as any).L.control.zoom({ position: 'bottomright' }).addTo(map);
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-    (window as any).L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
@@ -943,6 +949,27 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
     // Buat pane terpisah untuk GPS agar tidak bertabrakan dengan polyline ruas (canvas)
     map.createPane('gpsPane');
     map.getPane('gpsPane').style.zIndex = '650';
+
+    // Buat Layer Groups untuk memisahkan Trase, Kondisi, dan Penanganan
+    const traseGroup = L.featureGroup();
+    const kondisiGroup = L.featureGroup();
+    const treatmentGroup = L.featureGroup();
+
+    // Secara default, tampilkan Trase dan Kondisi di peta
+    traseGroup.addTo(map);
+    kondisiGroup.addTo(map);
+
+    // Tambahkan Layer Control di pojok kiri atas
+    const layerControl = L.control.layers(null, {
+      "Trase Jalan (Base)": traseGroup,
+      "Kondisi Jalan (IRI/SDI)": kondisiGroup,
+      "Program Penanganan": treatmentGroup
+    }, { position: 'topleft', collapsed: false }).addTo(map);
+
+    traseLayerGroupRef.current = traseGroup;
+    kondisiLayerGroupRef.current = kondisiGroup;
+    treatmentLayerGroupRef.current = treatmentGroup;
+    layerControlRef.current = layerControl;
 
     map.on('dragstart', () => {
       setFollowUserGps(false);
@@ -952,11 +979,28 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
     return () => {
       if (mapRef.current) {
+        if (layerControlRef.current) {
+          try { layerControlRef.current.remove(); } catch (e) {}
+          layerControlRef.current = null;
+        }
         mapRef.current.remove();
         mapRef.current = null;
       }
     };
   }, [isLeafletLoaded]);
+
+  // Sinkronisasi layer peta dengan state 'mode' dari React
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    if (mode === 'iri') {
+      if (treatmentLayerGroupRef.current) mapRef.current.removeLayer(treatmentLayerGroupRef.current);
+      if (kondisiLayerGroupRef.current) kondisiLayerGroupRef.current.addTo(mapRef.current);
+    } else if (mode === 'treatment') {
+      if (kondisiLayerGroupRef.current) mapRef.current.removeLayer(kondisiLayerGroupRef.current);
+      if (treatmentLayerGroupRef.current) treatmentLayerGroupRef.current.addTo(mapRef.current);
+    }
+  }, [mode]);
 
   // Efek untuk memantau pergerakan koordinat GPS real-time
   useEffect(() => {
@@ -1118,12 +1162,12 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
       try {
         const L = (window as any).L;
         if (!L || renderAbortRef.current) return;
+        if (!traseLayerGroupRef.current || !kondisiLayerGroupRef.current || !treatmentLayerGroupRef.current) return;
 
-        // Clear old layers
-        if (mapLayersRef.current) {
-          mapRef.current.removeLayer(mapLayersRef.current);
-          mapLayersRef.current = null;
-        }
+        // Clear old layers from all groups
+        traseLayerGroupRef.current.clearLayers();
+        kondisiLayerGroupRef.current.clearLayers();
+        treatmentLayerGroupRef.current.clearLayers();
 
         // Prepare ruas to render
         let ruasToRender: any[] = [];
@@ -1146,7 +1190,8 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
         type SegRenderItem = {
           from: [number, number];
           to: [number, number];
-          color: string;
+          kondisiColor: string;
+          treatmentColor: string;
           seg: any;
           yearData: any;
           ruasNamaJalan: string;
@@ -1185,12 +1230,14 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
             const seg = ruas.segments[idx];
             const dataYear = seg[year] || { iri: 0, sdi: 0, treatment: 'NONE' };
-            const color = getSegmentColor(ruas, seg, year, mode);
+            const kondisiColor = getSegmentColor(ruas, seg, year, 'iri');
+            const treatmentColor = getSegmentColor(ruas, seg, year, 'treatment');
 
             renderItems.push({
               from: coord,
               to: nextCoord,
-              color: color || '#334155',
+              kondisiColor: kondisiColor || '#CBD5E1',
+              treatmentColor: treatmentColor || '#CBD5E1',
               seg,
               yearData: dataYear,
               ruasNamaJalan: roadName,
@@ -1211,7 +1258,6 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
         // --- PHASE 2: Create Leaflet objects in chunks to avoid UI freeze ---
         const CHUNK_SIZE = 500;
-        const featureGroup = L.featureGroup();
         
         for (let i = 0; i < renderItems.length; i += CHUNK_SIZE) {
           if (renderAbortRef.current) return;
@@ -1219,13 +1265,8 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
           const chunk = renderItems.slice(i, i + CHUNK_SIZE);
           
           for (const item of chunk) {
-            const polyline = L.polyline(
-              [item.from, item.to],
-              { color: item.color, weight: 10, opacity: 1, lineCap: 'round', lineJoin: 'round' }
-            );
-
-            // Lazy tooltip — content only built on hover
-            polyline.bindTooltip(() => {
+            // Tooltip template helper
+            const getTooltipHtml = () => {
               const conditionLabel = item.isNasional ? 'IRI' : 'SDI';
               const conditionValRaw = item.isNasional ? (item.yearData.iri || 0) : (item.yearData.sdi || 0);
               const conditionValDisplay = (typeof conditionValRaw === 'number' && !isNaN(conditionValRaw) && conditionValRaw > 0)
@@ -1251,9 +1292,31 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                   </div>
                 </div>
               `;
-            }, { sticky: true, className: 'custom-tooltip' });
+            };
 
-            featureGroup.addLayer(polyline);
+            // 1. Base Trase Polyline (Thicker, neutral color)
+            const trasePolyline = L.polyline(
+              [item.from, item.to],
+              { color: '#475569', weight: 8, opacity: 0.6, lineCap: 'round', lineJoin: 'round' }
+            );
+            trasePolyline.bindTooltip(getTooltipHtml, { sticky: true, className: 'custom-tooltip' });
+            traseLayerGroupRef.current.addLayer(trasePolyline);
+
+            // 2. Kondisi Polyline (Thinner, color based on condition)
+            const kondisiPolyline = L.polyline(
+              [item.from, item.to],
+              { color: item.kondisiColor, weight: 4.5, opacity: 1, lineCap: 'round', lineJoin: 'round' }
+            );
+            kondisiPolyline.bindTooltip(getTooltipHtml, { sticky: true, className: 'custom-tooltip' });
+            kondisiLayerGroupRef.current.addLayer(kondisiPolyline);
+
+            // 3. Treatment Polyline (Thinner, color based on treatment)
+            const treatmentPolyline = L.polyline(
+              [item.from, item.to],
+              { color: item.treatmentColor, weight: 4.5, opacity: 1, lineCap: 'round', lineJoin: 'round' }
+            );
+            treatmentPolyline.bindTooltip(getTooltipHtml, { sticky: true, className: 'custom-tooltip' });
+            treatmentLayerGroupRef.current.addLayer(treatmentPolyline);
           }
 
           // Yield to main thread between chunks
@@ -1264,10 +1327,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
         if (renderAbortRef.current) return;
 
-        // --- PHASE 3: Add to map and fit bounds ---
-        featureGroup.addTo(mapRef.current);
-        mapLayersRef.current = featureGroup;
-
+        // --- PHASE 3: Fit bounds ---
         if (allPoints.length > 0) {
           mapRef.current.fitBounds(L.latLngBounds(allPoints), { padding: [50, 50], maxZoom: 16 });
         }
@@ -1279,7 +1339,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
         }
       }
     }
-  }, [year, mode, selectedRuasDetail, filteredRuasData, filterPengelola, isLeafletLoaded]);
+  }, [year, selectedRuasDetail, filteredRuasData, filterPengelola, isLeafletLoaded]);
 
   // Fix map grey area when resizing or switching tabs
   useEffect(() => {
