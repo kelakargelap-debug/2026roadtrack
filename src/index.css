@@ -32,3 +32,19 @@ body {
 .leaflet-tooltip-right:before {
   @apply !border-transparent;
 }
+
+/* Custom pulsating live location CSS */
+@keyframes pulse-gps {
+  0% {
+    transform: scale(0.5);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.8);
+    opacity: 0;
+  }
+}
+
+.gps-pulse-effect {
+  animation: pulse-gps 2s infinite cubic-bezier(0.16, 1, 0.3, 1);
+}

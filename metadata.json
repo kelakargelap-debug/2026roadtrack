@@ -1,6 +1,10 @@
 {
   "name": "Remix: RoadTrack",
   "description": "Sistem Informasi Kemantapan \u0026 Riwayat Penanganan Jalan BPJN Maluku berbasis peta interaktif dan data survei 100m.",
-  "requestFramePermissions": [],
-  "majorCapabilities": []
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

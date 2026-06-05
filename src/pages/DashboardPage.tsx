@@ -25,7 +25,8 @@ import {
   Filter,
   ClipboardList,
   Settings2,
-  Trash2
+  Trash2,
+  Locate
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import axios from 'axios';
@@ -207,6 +208,15 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
   const isLeafletLoaded = useLeaflet();
   const mapRef = useRef<any>(null);
   const mapLayersRef = useRef<any>(null);
+
+  const watchIdRef = useRef<number | null>(null);
+  const gpsMarkerRef = useRef<any>(null);
+  const gpsCircleRef = useRef<any>(null);
+
+  const [isGpsActive, setIsGpsActive] = useState(false);
+  const [gpsError, setGpsError] = useState<string | null>(null);
+  const [gpsCoords, setGpsCoords] = useState<{ lat: number, lng: number, accuracy: number } | null>(null);
+  const [followUserGps, setFollowUserGps] = useState(true);
 
   const [showInitialLoading, setShowInitialLoading] = useState(true);
 
@@ -930,6 +940,10 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
 
+    map.on('dragstart', () => {
+      setFollowUserGps(false);
+    });
+
     mapRef.current = map;
 
     return () => {
@@ -939,6 +953,136 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
       }
     };
   }, [isLeafletLoaded]);
+
+  // Efek untuk memantau pergerakan koordinat GPS real-time
+  useEffect(() => {
+    if (!isGpsActive || mainView !== 'map') {
+      // Bersihkan GPS Watcher
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+      
+      // Bersihkan Marker & Circle Penanda di Peta
+      if (gpsMarkerRef.current && mapRef.current) {
+        try { mapRef.current.removeLayer(gpsMarkerRef.current); } catch (e) {}
+      }
+      if (gpsCircleRef.current && mapRef.current) {
+        try { mapRef.current.removeLayer(gpsCircleRef.current); } catch (e) {}
+      }
+      gpsMarkerRef.current = null;
+      gpsCircleRef.current = null;
+      setGpsCoords(null);
+      setGpsError(null);
+      if (isGpsActive && mainView !== 'map') {
+        setIsGpsActive(false);
+      }
+      return;
+    }
+
+    if (!navigator.geolocation) {
+      setGpsError("Browser Anda tidak mendukung layanan lokasi GPS.");
+      setIsGpsActive(false);
+      return;
+    }
+
+    setGpsError(null);
+
+    const onSuccess = (position: GeolocationPosition) => {
+      const { latitude, longitude, accuracy } = position.coords;
+      setGpsCoords({ lat: latitude, lng: longitude, accuracy });
+    };
+
+    const onError = (error: GeolocationPositionError) => {
+      console.error("GPS tracking error:", error);
+      let msg = "Gagal mengambil lokasi Anda.";
+      if (error.code === error.PERMISSION_DENIED) {
+        msg = "Izin lokasi ditolak. Aktifkan penunjuk lokasi/GPS pada browser Anda.";
+      } else if (error.code === error.POSITION_UNAVAILABLE) {
+        msg = "Informasi lokasi GPS tidak tersedia.";
+      } else if (error.code === error.TIMEOUT) {
+        msg = "Waktu koordinat GPS habis.";
+      }
+      setGpsError(msg);
+      setIsGpsActive(false);
+    };
+
+    watchIdRef.current = navigator.geolocation.watchPosition(onSuccess, onError, {
+      enableHighAccuracy: true,
+      maximumAge: 1000,
+      timeout: 10000
+    });
+
+    return () => {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+    };
+  }, [isGpsActive, mainView]);
+
+  // Re-render marker GPS secara langsung pada perubahan koordinat terbaru
+  useEffect(() => {
+    if (!isLeafletLoaded || !mapRef.current || !gpsCoords) return;
+
+    const L = (window as any).L;
+    if (!L) return;
+
+    try {
+      // 1. Gambar/Update Penanda Biru dengan Gelombang Pulsasi
+      if (!gpsMarkerRef.current) {
+        const gpsIcon = L.divIcon({
+          className: 'custom-gps-marker',
+          html: `
+            <div style="position: relative; width: 16px; height: 16px;">
+              <div style="position: absolute; top: 0; left: 0; width: 16px; height: 16px; background-color: #3b82f6; border-radius: 50%; border: 2.5px solid #ffffff; box-shadow: 0 0 6px rgba(59, 130, 246, 0.8); z-index: 10;"></div>
+              <div class="gps-pulse-effect" style="position: absolute; top: -7px; left: -7px; width: 30px; height: 30px; background-color: rgba(59, 130, 246, 0.4); border-radius: 50%; z-index: 5;"></div>
+            </div>
+          `,
+          iconSize: [30, 30],
+          iconAnchor: [15, 15]
+        });
+
+        gpsMarkerRef.current = L.marker([gpsCoords.lat, gpsCoords.lng], { icon: gpsIcon }).addTo(mapRef.current);
+        gpsMarkerRef.current.bindPopup(`
+          <div class="font-sans text-xs p-1">
+            <b class="text-[#003B7A] block mb-0.5">Lokasi Saya</b>
+            <span class="text-slate-500 text-[10px] block">Akurasi: ${gpsCoords.accuracy.toFixed(1)} meter</span>
+          </div>
+        `);
+      } else {
+        gpsMarkerRef.current.setLatLng([gpsCoords.lat, gpsCoords.lng]);
+        gpsMarkerRef.current.setPopupContent(`
+          <div class="font-sans text-xs p-1">
+            <b class="text-[#003B7A] block mb-0.5">Lokasi Saya</b>
+            <span class="text-slate-500 text-[10px] block">Akurasi: ${gpsCoords.accuracy.toFixed(1)} meter</span>
+          </div>
+        `);
+      }
+
+      // 2. Gambar/Update Area Radius Akurasi (Akurasi GPS)
+      if (!gpsCircleRef.current) {
+        gpsCircleRef.current = L.circle([gpsCoords.lat, gpsCoords.lng], {
+          radius: gpsCoords.accuracy,
+          color: '#3b82f6',
+          fillColor: '#3b82f6',
+          fillOpacity: 0.12,
+          weight: 1.5,
+          dashArray: '3, 4'
+        }).addTo(mapRef.current);
+      } else {
+        gpsCircleRef.current.setLatLng([gpsCoords.lat, gpsCoords.lng]);
+        gpsCircleRef.current.setRadius(gpsCoords.accuracy);
+      }
+
+      // 3. Fokus Arah Kamera Otomatis secara mulus
+      if (followUserGps) {
+        mapRef.current.setView([gpsCoords.lat, gpsCoords.lng], Math.max(mapRef.current.getZoom(), 15));
+      }
+    } catch (err) {
+      console.error("Leaflet drawing error for GPS:", err);
+    }
+  }, [gpsCoords, followUserGps, isLeafletLoaded]);
 
   // Optimized Render with debounce + chunking + pre-computed coords
   useEffect(() => {
@@ -1703,6 +1847,71 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
                 <div className="text-[10px] font-bold text-[#003B7A] px-2 py-1">
                   {filterPengelola ? filterPengelola.toUpperCase() : 'BELUM DIPILIH'}
                 </div>
+              </div>
+
+              {/* Live GPS Tracking Control */}
+              <div className="bg-white rounded-lg shadow-xl border border-slate-200 p-2 min-w-[140px] pointer-events-auto">
+                <div className="flex items-center justify-between px-2 mb-2">
+                  <span className="text-[10px] font-black text-slate-400 uppercase block">Live Lokasi GPS</span>
+                  {isGpsActive ? (
+                    <span className="flex h-2 w-2 relative">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                    </span>
+                  ) : (
+                    <span className="h-2 w-2 rounded-full bg-slate-300"></span>
+                  )}
+                </div>
+                
+                <button
+                  onClick={() => setIsGpsActive(!isGpsActive)}
+                  className={`w-full flex items-center justify-center gap-2 py-1.5 px-3 rounded text-xs font-black uppercase tracking-wider transition-all duration-300 ${
+                    isGpsActive 
+                      ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-md' 
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                  }`}
+                >
+                  <Locate size={14} className={isGpsActive ? "animate-[spin_4s_linear_infinite]" : ""} />
+                  {isGpsActive ? 'Matikan GPS' : 'Aktifkan GPS'}
+                </button>
+
+                {isGpsActive && (
+                  <div className="mt-2 border-t border-slate-100 pt-2 flex flex-col gap-1.5 animate-in fade-in duration-200">
+                    <button
+                      onClick={() => setFollowUserGps(!followUserGps)}
+                      className={`w-full py-1 px-2 rounded text-[9px] font-black uppercase text-center border transition-all ${
+                        followUserGps
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                          : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
+                      }`}
+                    >
+                      {followUserGps ? '✓ Mengikuti Gerakan' : 'Ikuti Gerakan Saya'}
+                    </button>
+
+                    {gpsCoords && (
+                      <div className="bg-blue-50/50 rounded p-1.5 text-[9px] font-bold text-blue-800 flex flex-col gap-0.5 leading-tight">
+                        <div className="flex justify-between">
+                          <span>LAT:</span>
+                          <span>{gpsCoords.lat.toFixed(5)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>LNG:</span>
+                          <span>{gpsCoords.lng.toFixed(5)}</span>
+                        </div>
+                        <div className="flex justify-between border-t border-blue-100/50 mt-1 pt-1 opacity-85">
+                          <span>AKURASI:</span>
+                          <span>{gpsCoords.accuracy.toFixed(1)}m</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {gpsError && (
+                  <div className="mt-2 bg-red-50 text-red-700 p-1.5 rounded text-[9px] font-bold leading-relaxed border border-[#E26B67]/30">
+                    {gpsError}
+                  </div>
+                )}
               </div>
             </div>
 
