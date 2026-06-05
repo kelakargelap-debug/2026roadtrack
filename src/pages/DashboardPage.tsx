@@ -1020,13 +1020,40 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
 
   // --- OPTIMIZED HELPER: Parse & auto-swap coords in one pass ---
   const parseCoord = (seg: any): [number, number] | null => {
-    let lat = parseFloat(seg.latitude || seg.lat1 || seg.lat);
-    let lon = parseFloat(seg.longitude || seg.lon1 || seg.lon);
-    if (isNaN(lat) || isNaN(lon) || lat === 0 || lon === 0) return null;
+    // Helper to parse values that may use comma as decimal separator
+    const parseVal = (v: any): number => {
+      if (v === undefined || v === null) return NaN;
+      if (typeof v === 'number') return v;
+      // Replace comma decimal separator with dot
+      let s = String(v).trim().replace(/,/g, '.');
+      return parseFloat(s);
+    };
+
+    let lat = parseVal(seg.latitude ?? seg.lat1 ?? seg.lat);
+    let lon = parseVal(seg.longitude ?? seg.lon1 ?? seg.lon);
+    if (isNaN(lat) || isNaN(lon) || (lat === 0 && lon === 0)) return null;
+
+    // Auto-scale huge integer coordinates (lost decimal separator during import)
+    // Indonesia lat range: -11 to 6, lon range: 95 to 141
+    if (Math.abs(lat) > 11 || lat > 6) {
+      let v = lat, limit = 0;
+      while ((v < -11 || v > 6) && limit < 15) { v = v / 10; limit++; }
+      if (v >= -11 && v <= 6) lat = v;
+    }
+    if (lon > 141 || lon < 95) {
+      let v = lon, limit = 0;
+      while ((v < 95 || v > 141) && limit < 15) { v = v / 10; limit++; }
+      if (v >= 95 && v <= 141) lon = v;
+    }
+
+    // Validate final values are within Indonesia bounds
+    if (lat < -11 || lat > 6 || lon < 95 || lon > 141) return null;
+
     // Auto-swap if user put longitude in latitude column (Indonesia lat is small, lon is large)
     if (Math.abs(lat) > Math.abs(lon)) { const t = lat; lat = lon; lon = t; }
     return [lat, lon];
   };
+
 
   // Initialize Map
   useEffect(() => {

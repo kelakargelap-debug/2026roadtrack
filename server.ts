@@ -9,6 +9,72 @@ import Database from "better-sqlite3";
 const SECRET_KEY = "roadtrack-super-secret";
 const db = new Database("roadtrack.db", { timeout: 15000 });
 
+const parseNum = (val: any) => {
+  if (val === undefined || val === null || val === "") return NaN;
+  if (typeof val === "number") return val;
+  let str = String(val).trim();
+  if (str.includes('.') && str.includes(',')) {
+    if (str.indexOf('.') < str.indexOf(',')) str = str.replace(/\./g, "").replace(/,/g, ".");
+    else str = str.replace(/,/g, "");
+  } else if (str.includes(',')) {
+    const commaCount = (str.match(/,/g) || []).length;
+    if (commaCount > 1) str = str.replace(/,/g, "");
+    else str = str.replace(/,/g, ".");
+  } else if (str.includes('.')) {
+    const dotCount = (str.match(/\./g) || []).length;
+    if (dotCount > 1) str = str.replace(/\./g, "");
+  }
+  return parseFloat(str);
+};
+
+// --- AUTO-FIX HELPERS for comma-decimal data (Indonesian format) ---
+const autoFixCoord = (val: number | null | undefined, type: 'lat' | 'lon'): number | null => {
+  if (val === null || val === undefined || isNaN(val)) return null;
+  // Indonesia ranges: lat -11 to 6, lon 95 to 141
+  const [min, max] = type === 'lat' ? [-11, 6] : [95, 141];
+  if (val >= min && val <= max) return val; // Already OK
+  // Handle negative lat separately
+  let v = val;
+  let limit = 0;
+  if (type === 'lat') {
+    // Lat can be negative (Indonesia south of equator)
+    while ((v < min || v > max) && limit < 15) {
+      v = v / 10;
+      limit++;
+    }
+  } else {
+    while ((v < min || v > max) && limit < 15) {
+      v = v / 10;
+      limit++;
+    }
+  }
+  return (v >= min && v <= max) ? parseFloat(v.toFixed(10)) : null;
+};
+
+const autoFixIri = (val: number | null | undefined): number | null => {
+  if (val === null || val === undefined || isNaN(val)) return null;
+  if (val >= 0 && val <= 30) return val; // Already OK (IRI range 0-30 m/km)
+  // Divide by powers of 10 until in range
+  let v = val;
+  let limit = 0;
+  while (v > 30 && limit < 10) {
+    v = v / 10;
+    limit++;
+  }
+  return (v >= 0 && v <= 30) ? parseFloat(v.toFixed(4)) : val; // fallback to original if can't fix
+};
+
+const autoFixSegment = (s: any): any => ({
+  ...s,
+  longitude: autoFixCoord(s.longitude, 'lon'),
+  latitude: autoFixCoord(s.latitude, 'lat'),
+});
+
+const autoFixAnnual = (a: any): any => ({
+  ...a,
+  iri: autoFixIri(a.iri),
+});
+
 // Initialize Database
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
@@ -72,6 +138,58 @@ if (!adminExists) {
   // Update password to new one if it already exists
   const hash = bcrypt.hashSync("sibusibu", 10);
   db.prepare("UPDATE users SET password_hash = ? WHERE email = ?").run(hash, "admin@roadtrack.id");
+}
+
+// --- STARTUP MIGRATION: Fix bad coordinates & IRI values ---
+try {
+  // Fix coordinates stored as large integers (e.g., 1282521258 -> 128.2521258)
+  const badCoordSegs = db.prepare(
+    "SELECT id, longitude, latitude FROM segmen_jalan WHERE ABS(longitude) > 1000 OR ABS(latitude) > 1000"
+  ).all() as any[];
+  
+  if (badCoordSegs.length > 0) {
+    console.log(`[MIGRATION] Fixing ${badCoordSegs.length} segments with bad coordinates...`);
+    const updateCoord = db.prepare("UPDATE segmen_jalan SET longitude = ?, latitude = ? WHERE id = ?");
+    const fixCoordTx = db.transaction((segs: any[]) => {
+      let fixed = 0;
+      for (const seg of segs) {
+        const newLon = autoFixCoord(seg.longitude, 'lon');
+        const newLat = autoFixCoord(seg.latitude, 'lat');
+        if (newLon !== null || newLat !== null) {
+          updateCoord.run(newLon, newLat, seg.id);
+          fixed++;
+        }
+      }
+      return fixed;
+    });
+    const fixedCount = fixCoordTx(badCoordSegs);
+    console.log(`[MIGRATION] Fixed ${fixedCount} segment coordinates.`);
+  }
+
+  // Fix IRI values stored as large integers (e.g., 349 -> 3.49)
+  const badIriRows = db.prepare(
+    "SELECT id, iri FROM annual_data WHERE iri IS NOT NULL AND iri > 30"
+  ).all() as any[];
+  
+  if (badIriRows.length > 0) {
+    console.log(`[MIGRATION] Fixing ${badIriRows.length} annual_data rows with bad IRI values...`);
+    const updateIri = db.prepare("UPDATE annual_data SET iri = ? WHERE id = ?");
+    const fixIriTx = db.transaction((rows: any[]) => {
+      let fixed = 0;
+      for (const row of rows) {
+        const newIri = autoFixIri(row.iri);
+        if (newIri !== null && newIri !== row.iri) {
+          updateIri.run(newIri, row.id);
+          fixed++;
+        }
+      }
+      return fixed;
+    });
+    const fixedIri = fixIriTx(badIriRows);
+    console.log(`[MIGRATION] Fixed ${fixedIri} IRI values.`);
+  }
+} catch (migErr) {
+  console.error("[MIGRATION] Error during data fix migration:", migErr);
 }
 
 async function startServer() {
@@ -203,25 +321,7 @@ async function startServer() {
       sdi: ["SDI", "sdi"],
       treatment: ["Treatment", "treatment", "Penanganan", "penanganan", "Jenis Penanganan", "Program", "Pekerjaan", "Rencana Penanganan", "Tipe Penanganan"]
     };
-
-    const parseNum = (val: any) => {
-      if (val === undefined || val === null || val === "") return NaN;
-      if (typeof val === "number") return val;
-      let str = String(val).trim();
-      if (str.includes('.') && str.includes(',')) {
-        if (str.indexOf('.') < str.indexOf(',')) str = str.replace(/\./g, "").replace(/,/g, ".");
-        else str = str.replace(/,/g, "");
-      } else if (str.includes(',')) {
-        const commaCount = (str.match(/,/g) || []).length;
-        if (commaCount > 1) str = str.replace(/,/g, "");
-        else str = str.replace(/,/g, ".");
-      } else if (str.includes('.')) {
-        const dotCount = (str.match(/\./g) || []).length;
-        if (dotCount > 1) str = str.replace(/\./g, "");
-      }
-      return parseFloat(str);
-    };
-
+    
     const cleanTahunLabel = (label: any) => {
         let s = String(label || "").trim();
         if (s.endsWith(".0")) s = s.slice(0, -2);
@@ -274,8 +374,11 @@ async function startServer() {
 
         const staAwal = parseNum(getVal(item, mapping.staAwal));
         const staAkhir = parseNum(getVal(item, mapping.staAkhir));
-        const lon = parseNum(getVal(item, mapping.lon));
-        const lat = parseNum(getVal(item, mapping.lat));
+        const lonRaw = parseNum(getVal(item, mapping.lon));
+        const latRaw = parseNum(getVal(item, mapping.lat));
+        // Auto-fix coordinates that may have lost decimal separator
+        const lon = isNaN(lonRaw) ? NaN : (autoFixCoord(lonRaw, 'lon') ?? NaN);
+        const lat = isNaN(latRaw) ? NaN : (autoFixCoord(latRaw, 'lat') ?? NaN);
         
         const panjangVal = getVal(item, mapping.panjang);
         let panjang = parseNum(panjangVal);
@@ -302,11 +405,12 @@ async function startServer() {
         // 1. Explicit Tahun/Label Column
         const explicitlySpecifiedYear = cleanTahunLabel(getVal(item, mapping.tahun));
         if (explicitlySpecifiedYear !== "-") {
-            const iriVal = parseNum(getVal(item, mapping.iri));
+            const iriValRaw = parseNum(getVal(item, mapping.iri));
+            const iriVal = isNaN(iriValRaw) ? null : (autoFixIri(iriValRaw) ?? iriValRaw);
             const sdiValRaw = getVal(item, mapping.sdi);
             const sdiVal = (sdiValRaw !== undefined && sdiValRaw !== null && sdiValRaw !== "") ? String(sdiValRaw).trim() : null;
             
-            upsertAnnualKondisi.run(seg.id, explicitlySpecifiedYear, isNaN(iriVal) ? null : iriVal, sdiVal);
+            upsertAnnualKondisi.run(seg.id, explicitlySpecifiedYear, iriVal, sdiVal);
             if (getVal(item, mapping.treatment)) upsertAnnualTreatment.run(seg.id, explicitlySpecifiedYear, String(getVal(item, mapping.treatment)).trim());
             processedYears.add(explicitlySpecifiedYear);
         }
@@ -323,11 +427,11 @@ async function startServer() {
             if (yearMatch) {
                 const yearLabel = cleanTahunLabel(yearMatch[0]);
                 const val = parseNum(item[key]);
-                if (!isNaN(val)) upsertAnnualKondisi.run(seg.id, yearLabel, val, null);
+                if (!isNaN(val)) upsertAnnualKondisi.run(seg.id, yearLabel, autoFixIri(val) ?? val, null);
             } else if (iriMatch) {
                 const yearLabel = cleanTahunLabel(iriMatch[1]);
                 const val = parseNum(item[key]);
-                if (!isNaN(val)) upsertAnnualKondisi.run(seg.id, yearLabel, val, null);
+                if (!isNaN(val)) upsertAnnualKondisi.run(seg.id, yearLabel, autoFixIri(val) ?? val, null);
             } else if (sdiMatch) {
                 const yearLabel = cleanTahunLabel(sdiMatch[1]);
                 const val = item[key];
@@ -451,12 +555,14 @@ async function startServer() {
       });
 
       const enrichedSegments = segments.map((s: any) => {
+        const fixed = autoFixSegment(s);
         const yearAnnuals = annualsBySegmen.get(s.id) || [];
         const yearsData: any = {};
         yearAnnuals.forEach((a: any) => {
-          yearsData[a.tahun] = { iri: a.iri, sdi: a.sdi, treatment: a.treatment };
+          const fa = autoFixAnnual(a);
+          yearsData[a.tahun] = { iri: fa.iri, sdi: a.sdi, treatment: a.treatment };
         });
-        return { ...s, ...yearsData };
+        return { ...fixed, ...yearsData };
       });
 
       // Calculate panjang if missing
@@ -528,12 +634,14 @@ async function startServer() {
       const segmentsByRuas = new Map();
       allSegments.forEach((s: any) => {
         if (!segmentsByRuas.has(s.ruas_id)) segmentsByRuas.set(s.ruas_id, []);
+        const fixed = autoFixSegment(s);
         const annuals = annualsBySegmen.get(s.id) || [];
         const yearsData: any = {};
         annuals.forEach((a: any) => {
-          yearsData[a.tahun] = { iri: a.iri, sdi: a.sdi, treatment: a.treatment };
+          const fa = autoFixAnnual(a);
+          yearsData[a.tahun] = { iri: fa.iri, sdi: a.sdi, treatment: a.treatment };
         });
-        segmentsByRuas.get(s.ruas_id).push({ ...s, ...yearsData });
+        segmentsByRuas.get(s.ruas_id).push({ ...fixed, ...yearsData });
       });
 
       const result = ruas.map((r: any) => {
@@ -603,13 +711,19 @@ async function startServer() {
           } = item;
 
           updateRuas.run(no_ruas, nama_jalan, ppk, pengelola || 'nasional', kabupaten_kota || null, no_ruas);
-          updateSeg.run(segment_id, sta_awal, sta_akhir, longitude, latitude, id);
+          
+          const staAwalNum = parseNum(sta_awal);
+          const staAkhirNum = parseNum(sta_akhir);
+          const lonNum = parseNum(longitude);
+          const latNum = parseNum(latitude);
+          
+          updateSeg.run(segment_id, isNaN(staAwalNum) ? null : staAwalNum, isNaN(staAkhirNum) ? null : staAkhirNum, isNaN(lonNum) ? null : lonNum, isNaN(latNum) ? null : latNum, id);
 
           if (tahun) {
             const cleanTahun = String(tahun);
-            const iriNum = (iri_value === undefined || iri_value === null) ? null : parseFloat(iri_value);
+            const iriNum = (iri_value === undefined || iri_value === null || iri_value === "") ? null : parseNum(iri_value);
             const sdiNum = (sdi_value === undefined || sdi_value === null) ? null : String(sdi_value);
-            upsertAnnual.run(id, cleanTahun, iriNum, sdiNum, treatment || 'NONE');
+            upsertAnnual.run(id, cleanTahun, isNaN(iriNum) ? null : iriNum, sdiNum, treatment || 'NONE');
           }
         }
       })(updates);
@@ -632,18 +746,23 @@ async function startServer() {
         db.prepare("UPDATE ruas_jalan SET no_ruas = ?, nama_jalan = ?, ppk = ?, pengelola = ?, kabupaten_kota = ? WHERE no_ruas = ?")
           .run(no_ruas, nama_jalan, ppk, pengelola || 'nasional', kabupaten_kota || null, no_ruas);
 
+        const staAwalNum = parseNum(sta_awal);
+        const staAkhirNum = parseNum(sta_akhir);
+        const lonNum = parseNum(longitude);
+        const latNum = parseNum(latitude);
+
         // Update Segment Info
         db.prepare(`
           UPDATE segmen_jalan SET 
             segment_id = ?, sta_awal = ?, sta_akhir = ?, 
             longitude = ?, latitude = ?
           WHERE id = ?
-        `).run(segment_id, sta_awal, sta_akhir, longitude, latitude, id);
+        `).run(segment_id, isNaN(staAwalNum) ? null : staAwalNum, isNaN(staAkhirNum) ? null : staAkhirNum, isNaN(lonNum) ? null : lonNum, isNaN(latNum) ? null : latNum, id);
 
         // Update or Insert Annual Data
         if (tahun) {
           const cleanTahun = String(tahun);
-          const iriNum = (iri_value === undefined || iri_value === null || iri_value === "") ? null : parseFloat(iri_value);
+          const iriNum = (iri_value === undefined || iri_value === null || iri_value === "") ? null : parseNum(iri_value);
           const sdiVal = (sdi_value === undefined || sdi_value === null) ? null : String(sdi_value).trim();
           
           db.prepare(`
@@ -653,7 +772,7 @@ async function startServer() {
               iri = COALESCE(excluded.iri, annual_data.iri),
               sdi = COALESCE(excluded.sdi, annual_data.sdi),
               treatment = COALESCE(excluded.treatment, annual_data.treatment)
-          `).run(id, cleanTahun, iriNum, sdiVal, treatment || 'NONE');
+          `).run(id, cleanTahun, isNaN(iriNum) ? null : iriNum, sdiVal, treatment || 'NONE');
         }
       })();
       res.json({ success: true });
