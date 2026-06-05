@@ -1068,8 +1068,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
           fillColor: '#3b82f6',
           fillOpacity: 0.12,
           weight: 1.5,
-          dashArray: '3, 4',
-          renderer: L.svg()
+          dashArray: '3, 4'
         }).addTo(mapRef.current);
       } else {
         gpsCircleRef.current.setLatLng([gpsCoords.lat, gpsCoords.lng]);
