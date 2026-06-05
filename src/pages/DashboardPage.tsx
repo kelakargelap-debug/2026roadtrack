@@ -1093,10 +1093,6 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
 
-    map.on('dragstart', () => {
-      setFollowUserGps(false);
-    });
-
     mapRef.current = map;
 
     return () => {
