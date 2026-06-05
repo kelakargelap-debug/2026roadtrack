@@ -213,7 +213,7 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
   const gpsMarkerRef = useRef<any>(null);
   const gpsZoomHandlerRef = useRef<any>(null);
 
-  const [isGpsActive, setIsGpsActive] = useState(false);
+  const [isGpsActive, setIsGpsActive] = useState(() => localStorage.getItem('rt_isGpsActive') === 'true');
   const [gpsError, setGpsError] = useState<string | null>(null);
   const [gpsCoords, setGpsCoords] = useState<{ lat: number, lng: number, accuracy: number } | null>(null);
   const [followUserGps, setFollowUserGps] = useState(true);
@@ -230,14 +230,28 @@ const DashboardPage = ({ setView }: { setView: (v: string) => void }) => {
   const [ruasData, setRuasData] = useState<any[]>([]);
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const [availableYears, setAvailableYears] = useState<string[]>([]);
-  const [year, setYear] = useState<string>('');
-  const [mode, setMode] = useState('iri'); // 'iri' or 'treatment'
-  const [mainView, setMainView] = useState<'map' | 'analytics' | 'trend'>('map');
-  const [selectedRuasId, setSelectedRuasId] = useState<string | null>(null);
+  const [year, setYear] = useState<string>(() => localStorage.getItem('rt_year') || '');
+  const [mode, setMode] = useState(() => localStorage.getItem('rt_mode') || 'iri'); // 'iri' or 'treatment'
+  const [mainView, setMainView] = useState<'map' | 'analytics' | 'trend'>(() => (localStorage.getItem('rt_mainView') as any) || 'map');
+  const [selectedRuasId, setSelectedRuasId] = useState<string | null>(() => localStorage.getItem('rt_selectedRuasId') || null);
   const [hoveredSegment, setHoveredSegment] = useState<string | null>(null);
-  const [filterPengelola, setFilterPengelola] = useState<string>('');
+  const [filterPengelola, setFilterPengelola] = useState<string>(() => localStorage.getItem('rt_filterPengelola') || '');
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+
+  // Sync state to localStorage
+  useEffect(() => {
+    localStorage.setItem('rt_isGpsActive', String(isGpsActive));
+    localStorage.setItem('rt_year', year);
+    localStorage.setItem('rt_mode', mode);
+    localStorage.setItem('rt_mainView', mainView);
+    localStorage.setItem('rt_filterPengelola', filterPengelola);
+    if (selectedRuasId) {
+      localStorage.setItem('rt_selectedRuasId', selectedRuasId);
+    } else {
+      localStorage.removeItem('rt_selectedRuasId');
+    }
+  }, [isGpsActive, year, mode, mainView, filterPengelola, selectedRuasId]);
 
   // --- ANALYTICS FILTERS STATE ---
   const [anaSearchQuery, setAnaSearchQuery] = useState('');
