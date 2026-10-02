@@ -1,6 +1,6 @@
 # RoadTrack GIS — terbaru
 **Sistem Informasi Kemantapan & Riwayat Penanganan Jalan**
-**Versi:** 2.0.0 | **Tanggal:** Mei 2026 | **Status:** Siap Dikembangkan
+**Versi:** 1.0.0 | **Tanggal:** Oct 2026 | **Status:** Siap Dikembangkan
 
 RoadTrack GIS adalah aplikasi web berbasis peta interaktif yang mengubah data Excel tabular menjadi visualisasi kondisi jalan real-time, lengkap dengan manajemen riwayat penanganan, analitik anggaran, dan sistem autentikasi multi-peran.
 
